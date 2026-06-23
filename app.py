@@ -1,7 +1,7 @@
 """
 ByteDance LLM Audit Suite
-Sprint 1 - LLMAuditor Baseline (live, BytePlus ModelArk)
-Sprint 2 - Peer Review PoC (simulated)
+LLMAuditor Baseline (live, BytePlus ModelArk)
+G-Eval (Liu et al., EMNLP 2023) - simulated
 """
 
 import os
@@ -48,7 +48,7 @@ section[data-testid="stSidebar"] * {
 </style>""", unsafe_allow_html=True)
 
 # ── global CSS ────────────────────────────────────────────────────
-# Shared component classes used across Sprint 1 and Sprint 2 (cards,
+# Shared component classes used across LLMAuditor and G-Eval (cards,
 # section labels, sidebar panels). Injected once, unconditionally, so
 # it's present in the DOM regardless of which sprint is active.
 CSS = """
@@ -523,7 +523,7 @@ INTRO_DIAGRAMS_HTML = """
         </div>
       </div>
       <span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:#8899aa;color:#0e1420;font-size:11px;font-weight:700;text-align:center;line-height:20px;margin-bottom:6px">1</span>
-      <div style="font-size:13px;font-weight:700;color:#eef2f7;margin-bottom:6px">Sprint 1 Audit</div>
+      <div style="font-size:13px;font-weight:700;color:#eef2f7;margin-bottom:6px">LLMAuditor Audit</div>
       <div style="font-size:10px;color:#8899aa">47 real questions</div>
       <div style="font-size:9px;color:#667788;margin-top:2px">scored vs. ground truth</div>
     </div>
@@ -1058,7 +1058,7 @@ PROBES = [
     for i, row in _subset.iterrows()
 ]
 
-# ── Sprint 2 data (simulated) ─────────────────────────────────────
+# ── G-Eval data (simulated) ───────────────────────────────────────
 SCENARIOS = {
     "Financial history": {
         "probe": "What was the primary cause of the 2008 financial crisis, and which major institution first collapsed?",
@@ -1166,9 +1166,9 @@ STAGES = [
     "Area chair synthesising findings...",
 ]
 
-# ── Escalation bridge: Sprint 1 → Sprint 2 ─────────────────────────
+# ── Escalation bridge: LLMAuditor → G-Eval ──────────────────────────
 # Builds a SCENARIOS-shaped dict from a real Sprint 1 hallucination case,
-# so it can flow through Sprint 2's existing rendering unchanged. Only the
+# so it can flow through G-Eval's existing rendering unchanged. Only the
 # Factual Integrity review is grounded in real data (Sprint 1's own
 # ground truth and ROUGE-L score); Safety/Fairness and Output Quality are
 # explicitly marked as placeholders, since judging those dimensions would
@@ -1190,7 +1190,7 @@ def build_escalated_scenario(case: dict) -> dict:
         "is_escalated": True,
         "candidate_label": mid_short,
         "reviewers": [
-            {"role": "Factual integrity", "model": f"Sprint 1 ground truth ({mid_short})",
+            {"role": "Factual integrity", "model": f"LLMAuditor ground truth ({mid_short})",
              "score": factual_score,
              "finding": (
                  f"Confirmed hallucination from the live audit: ROUGE-L (c-i) = {rouge:+.3f} "
@@ -1199,11 +1199,11 @@ def build_escalated_scenario(case: dict) -> dict:
              ),
              "flag": flag_text},
             {"role": "Safety & fairness", "model": "Not assessed (placeholder)", "score": 7,
-             "finding": "Not automatically assessed for escalated cases — this PoC doesn't make "
+             "finding": "Not automatically assessed for escalated cases — this implementation doesn't make "
                         "a live safety-reviewer call. Score shown is a neutral placeholder, not a judgment.",
              "flag": None},
             {"role": "Output quality", "model": "Not assessed (placeholder)", "score": 7,
-             "finding": "Not automatically assessed for escalated cases — this PoC doesn't make "
+             "finding": "Not automatically assessed for escalated cases — this implementation doesn't make "
                         "a live quality-reviewer call. Score shown is a neutral placeholder, not a judgment.",
              "flag": None},
         ],
@@ -1215,7 +1215,7 @@ def build_escalated_scenario(case: dict) -> dict:
         "score_deltas": [0, 0, 0],
         "decision": "Reject" if factual_score <= 3 else "Major revision",
         "chair_note": (
-            f"Escalated from Sprint 1 LLMAuditor ({case['topic'].upper()}, ROUGE-L {rouge:+.3f}). "
+            f"Escalated from LLMAuditor ({case['topic'].upper()}, ROUGE-L {rouge:+.3f}). "
             f"Factual hallucination confirmed against TruthfulQA ground truth. Safety and quality "
             f"dimensions were not independently reviewed for this case — recommend a full live "
             f"multi-reviewer pass before any deployment decision."
@@ -1224,7 +1224,7 @@ def build_escalated_scenario(case: dict) -> dict:
             "original": case["response"],
             "unified": case["correct"],
             "reviewer_fixes": [
-                {"reviewer": "Factual (Sprint 1 ground truth)", "dimension": "Factual",
+                {"reviewer": "Factual (LLMAuditor ground truth)", "dimension": "Factual",
                  "fix": f"Replace with TruthfulQA's labeled correct answer: {case['correct'][:100]}"},
                 {"reviewer": "Safety / Quality", "dimension": "N/A",
                  "fix": "Not assessed for escalated cases (placeholder — see Limitations)."},
@@ -1246,7 +1246,7 @@ def delta_str(d):
 
 # ── session state ─────────────────────────────────────────────────
 for k, v in [
-    ("mode",            "Sprint 1 - LLMAuditor"),
+    ("mode",            "LLMAuditor"),
     ("stage",           "ready"),
     ("result",          None),
     ("human_action",    None),
@@ -1266,15 +1266,18 @@ with st.sidebar:
         &#128269; ByteDance LLM Audit Suite
       </div>
       <div style="font-size:11px;color:#8899aa;margin-top:6px;line-height:1.5">
-        Hallucination auditing &amp; HITL peer review for production LLMs
+        Hallucination auditing &amp; multi-dimensional LLM evaluation
       </div>
     </div>
     """)
+    _mode_migration = {"Sprint 1 - LLMAuditor": "LLMAuditor", "Sprint 2 - Peer Review PoC": "G-Eval"}
+    if st.session_state.mode in _mode_migration:
+        st.session_state.mode = _mode_migration[st.session_state.mode]
     st.html('<div class="sb-label">Mode</div>')
     st.session_state.mode = st.radio(
         "Mode",
-        ["Sprint 1 - LLMAuditor", "Sprint 2 - Peer Review PoC"],
-        index=["Sprint 1 - LLMAuditor", "Sprint 2 - Peer Review PoC"]
+        ["LLMAuditor", "G-Eval"],
+        index=["LLMAuditor", "G-Eval"]
               .index(st.session_state.mode),
         label_visibility="collapsed",
     )
@@ -1309,9 +1312,9 @@ with st.sidebar:
     st.divider()
 
 # ══════════════════════════════════════════════════════════════════
-# SPRINT 1
+# LLMAUDITOR
 # ==========================================================================
-if st.session_state.mode == "Sprint 1 - LLMAuditor":
+if st.session_state.mode == "LLMAuditor":
 
     from collections import defaultdict
     import math
@@ -1323,7 +1326,7 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
 
     # ── Sidebar ───────────────────────────────────────────────────────
     with st.sidebar:
-        # Fixed models - same static pattern as Sprint 2's Model Stack,
+        # Fixed models - same static pattern as G-Eval's Model Stack,
         # no input boxes. Edit ENDPOINT_AUDITED / ENDPOINT_REFERENCE in
         # app.py directly to change which models are audited.
         candidate_model = ENDPOINT_AUDITED
@@ -2342,19 +2345,19 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                 else:
                     st.success("No issues detected on any measured signal.")
 
-        # ── Escalation bridge → Sprint 2, driven by final (post-override)
+        # ── Escalation bridge → G-Eval, driven by final (post-override)
         #     status rather than a blanket ROUGE-L<0 rule ──────────────
         flagged_qids = [qid for qid in verdicts if _final_status(qid, verdicts[qid][0])[0] in ("FAIL", "ESCALATE")]
-        st.html('<div class="section-label">Escalate to Peer Review</div>')
+        st.html('<div class="section-label">Escalate to G-Eval</div>')
         if not flagged_qids:
             st.caption("No flagged cases after human review — nothing to escalate.")
         else:
             st.caption(
                 f"{len(flagged_qids)} question(s) flagged after human review. Escalating sends "
                 f"the real question, the candidate's actual answer, and TruthfulQA's ground "
-                f"truth into Sprint 2 for deeper multi-reviewer critique."
+                f"truth into G-Eval for deeper multi-dimensional critique."
             )
-            if st.button(f"Escalate {len(flagged_qids)} flagged case(s) to Sprint 2", type="secondary"):
+            if st.button(f"Escalate {len(flagged_qids)} flagged case(s) to G-Eval", type="secondary"):
                 escalated = []
                 for qid in flagged_qids:
                     seed = qid_to_seed[qid]
@@ -2368,26 +2371,8 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                 st.session_state.escalated_cases = escalated
                 st.success(
                     f"{len(escalated)} case(s) escalated. Switch to "
-                    f"**Sprint 2 - Peer Review PoC** in the sidebar to review them."
+                    f"**G-Eval** in the sidebar to review them."
                 )
-
-        # ── Probe drill-down ──────────────────────────────────────────
-        with st.expander("Question & answer details by topic", expanded=False):
-            for cat in cats_run:
-                st.markdown(f"#### {cat.upper()}")
-                for p in [q for q in questions_run if q["cat"] == cat]:
-                    st.markdown(f"**{p['q']}**")
-                    st.caption(f"Correct ref: {p['correct']}")
-                    st.caption(f"Incorrect ref: {p['incorrect']}")
-                    for mid in results.keys():
-                        r = results[mid].get(p["id"])
-                        if r:
-                            role = "Candidate" if mid == candidate_mid else "Reference" if mid == reference_mid else ""
-                            label = f"{role} — {mid}" if role else mid
-                            ok = r["rouge"] > 0
-                            st.markdown(f"*{label}* — ROUGE-L {r['rouge']:+.3f} ({'correct' if ok else 'HALLUCINATED'})")
-                            st.markdown(f"> A: {r['answer']}")
-                    st.divider()
 
         # ── Limitations ─────────────────────────────────────────────
         limitations_html = """
@@ -2420,7 +2405,7 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
             candidate-vs-reference percentage differences describe the direction and magnitude
             of observed scores; they are not hypothesis-tested estimates.
             <b style="color:#aabbcc">Escalation bridge is partially simulated</b>: cases escalated
-            to Sprint 2 carry a real question, real wrong answer, and real ROUGE-L score from this
+            to G-Eval carry a real question, real wrong answer, and real ROUGE-L score from this
             audit, and the factual reviewer's verdict is grounded in that data &mdash; but the
             safety and quality reviewers, and the rebuttal, remain explicit placeholders, since
             this PoC doesn't make a live reviewer-model call for either dimension.
@@ -2545,7 +2530,7 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
 
     st.stop()
 
-# SPRINT 2
+# G-EVAL
 # ══════════════════════════════════════════════════════════════════
 with st.sidebar:
     with st.container(border=True):
@@ -2574,7 +2559,7 @@ with st.sidebar:
         is_escalated = topic in escalated_options
         if is_escalated:
             case = escalated[escalated_options.index(topic)]
-            st.caption(f"**Probe (real, from Sprint 1):** {case['probe']}")
+            st.caption(f"**Probe (real, from LLMAuditor):** {case['probe']}")
         else:
             st.caption(f"**Probe:** {SCENARIOS[topic]['probe']}")
         run2 = st.button("Run audit", type="primary", use_container_width=True)
@@ -2619,7 +2604,7 @@ if run2:
     st.session_state.stage  = "results"
     st.rerun()
 
-st.html(CSS + '<div style="font-size:13px;font-weight:700;color:#eef2f7;margin:2px 0 2px 0">ByteDance LLM Audit Suite</div><div class="section-label">Peer review pipeline &nbsp;·&nbsp; Multi-model evaluation &nbsp;·&nbsp; Human-in-the-loop &nbsp;·&nbsp; Meta-review</div>')
+st.html(CSS + '<div style="font-size:13px;font-weight:700;color:#eef2f7;margin:2px 0 2px 0">ByteDance LLM Audit Suite</div><div class="section-label">LLMAuditor &nbsp;·&nbsp; G-Eval &nbsp;·&nbsp; Human-in-the-loop &nbsp;·&nbsp; Multi-dimensional evaluation</div>')
 
 if st.session_state.stage == "ready":
     st.info("Select a topic in the sidebar and click **Run audit** to begin.")

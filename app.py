@@ -31,6 +31,22 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown("""<style>
+section[data-testid="stMain"] .block-container {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    padding-top: 1.5rem !important;
+    max-width: 100% !important;
+}
+section[data-testid="stSidebar"] {
+    min-width: 200px !important;
+    max-width: 200px !important;
+}
+section[data-testid="stSidebar"] * {
+    font-size: 12px !important;
+}
+</style>""", unsafe_allow_html=True)
+
 # ── global CSS ────────────────────────────────────────────────────
 # Shared component classes used across Sprint 1 and Sprint 2 (cards,
 # section labels, sidebar panels). Injected once, unconditionally, so
@@ -40,6 +56,11 @@ CSS = """
 .section-label{
   font-size:10px;text-transform:uppercase;letter-spacing:.08em;
   color:#8899aa;font-weight:700;margin:14px 0 8px 0;
+}
+.main .block-container{
+  padding-left:1rem !important;
+  padding-right:1rem !important;
+  max-width:100% !important;
 }
 .compact-card{
   background:#1e2530;border:1px solid #2e3a4a;border-radius:6px;
@@ -120,13 +141,13 @@ CSS = """
   border-radius:4px;padding:1px 8px;font-size:9.5px;font-weight:700;
   min-height:24px;height:24px;letter-spacing:.01em;
 }
-[class*="override_zone"] [data-testid="stColumn"]:nth-of-type(2) [data-testid="stButton"] button{
+[class*="override_zone"] [data-testid="stColumn"]:nth-of-type(4) [data-testid="stButton"] button{
   border-color:rgba(22,163,74,.4) !important;color:#4ade80 !important;background:rgba(22,163,74,.08) !important;
 }
-[class*="override_zone"] [data-testid="stColumn"]:nth-of-type(3) [data-testid="stButton"] button{
+[class*="override_zone"] [data-testid="stColumn"]:nth-of-type(5) [data-testid="stButton"] button{
   border-color:rgba(220,38,38,.4) !important;color:#f87171 !important;background:rgba(220,38,38,.08) !important;
 }
-[class*="override_zone"] [data-testid="stColumn"]:nth-of-type(4) [data-testid="stButton"] button{
+[class*="override_zone"] [data-testid="stColumn"]:nth-of-type(6) [data-testid="stButton"] button{
   border-color:rgba(245,158,11,.4) !important;color:#f59e0b !important;background:rgba(245,158,11,.08) !important;
 }
 
@@ -158,12 +179,47 @@ CSS = """
   text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
 .tip-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .tip-text{font-size:11px;color:#ccd6e0;line-height:1.45}
+
+/* ── Mobile / responsive ──────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Tighten page margins */
+  .main .block-container {
+    padding: 0.75rem 0.75rem 0.75rem 0.75rem !important;
+    max-width: 100% !important;
+  }
+  /* Shrink sidebar */
+  [data-testid="stSidebar"] {
+    min-width: 200px !important;
+    max-width: 200px !important;
+  }
+  [data-testid="stSidebar"] [data-testid="stMarkdown"] p,
+  [data-testid="stSidebar"] label {
+    font-size: 11px !important;
+  }
+  .compact-card { min-width: 120px !important; padding: 8px 10px !important; }
+  .cc-value { font-size: 15px !important; }
+  .review-card { padding: 10px 12px; }
+  .rc-score { font-size: 17px; }
+  .timeline-row { flex-wrap: wrap; }
+  .step-tip .tip-bubble { left: 0; transform: none; width: 220px; }
+  .t4-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+@media (max-width: 480px) {
+  .main .block-container { padding: 0.5rem !important; }
+  [data-testid="stSidebar"] {
+    min-width: 160px !important;
+    max-width: 160px !important;
+  }
+  .compact-card { min-width: 100% !important; flex: 1 1 100% !important; }
+  .cc-value { font-size: 14px !important; }
+  .step-tip .tip-bubble { width: 170px; }
+}
 </style>
 """
 st.html(CSS)
 
-# ── Introduction (covers the whole suite: both sprints) ────────────
-INTRO_CARDS_HTML = """
+# ── Introduction removed ───────────────────────────────────────────
+_INTRO_REMOVED = """
 <div style="background:#161c26;border:1px solid #2a3848;border-radius:8px;
             padding:16px 20px;margin:10px 0 12px 0">
   <div style="font-size:10px;color:#4488bb;text-transform:uppercase;
@@ -542,13 +598,6 @@ INTRO_DIAGRAMS_HTML = """
 </div>
 """
 
-def render_introduction():
-    st.html(INTRO_CARDS_HTML)
-    with st.expander("Read the full write-up (problem, approach, constraints)"):
-        st.html(INTRO_FULL_HTML)
-    st.html(INTRO_DIAGRAMS_HTML)
-
-
 # ── credentials ───────────────────────────────────────────────────
 # Local: ARK_API_KEY in .env
 # Deployed: ARK_API_KEY in Streamlit secrets
@@ -911,6 +960,19 @@ html,body{width:100%;background:#0d0f1a;color:#cbd5e1;font-family:-apple-system,
 .ansbox{background:#0a0c14;border:1px solid rgba(255,255,255,.06);border-radius:4px;padding:7px 9px;font-size:10px;line-height:1.55;color:#94a3b8;margin-bottom:8px}
 .refline{font-size:9.5px;color:#475569;margin-bottom:3px}
 .refline b{color:#64748b}
+@media (max-width:540px){
+  #lay{flex-direction:column}
+  #tp{border-right:none;border-bottom:1px solid rgba(255,255,255,.07)}
+  #tb{max-height:190px}
+  #ch{grid-template-columns:36px 1fr 90px}
+  #ch div:nth-child(3),#ch div:nth-child(4){display:none}
+  .row{grid-template-columns:36px 1fr 90px;height:auto;min-height:38px;padding:5px 8px}
+  .row>*:nth-child(3),.row>*:nth-child(4){display:none}
+  .nm{font-size:10px}
+  .jb{display:none}
+  #dp{width:100%!important;max-height:220px}
+  .dn{font-size:12px}
+}
 </style></head><body>
 <div id="wrap">
 <div id="hdr"><div id="ht">&#9672; Decision Review &middot; Human-in-the-Loop<span class="dp">LIVE</span></div><div id="hs"><span class="sp sa" id="sok"></span><span class="sp sd" id="sno"></span><span class="sp st" id="stot"></span></div></div>
@@ -1670,9 +1732,6 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
         worst_topic = min(topic_rouge, key=topic_rouge.get) if topic_rouge else "n/a"
         best_topic  = max(topic_rouge, key=topic_rouge.get) if topic_rouge else "n/a"
 
-        # ── Introduction ────────────────────────────────────────────
-        render_introduction()
-
         # ── Compact header + KPI row ──────────────────────────────────
         import plotly.graph_objects as go
 
@@ -1758,71 +1817,51 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                 return f"Reference ({short(mid)})"
             return short(mid)
 
-        col_chart, col_hall = st.columns(2)
-
         ref_fig_clause = (
             f"vs. reference ({short(reference_mid)})" if reference_mid is not None
             else "(no reference model audited this run)"
         )
 
-        with col_chart:
-            fig_rouge = go.Figure()
-            for mid in chart_models:
-                vals = [topic_data.get(mid, {}).get(c, {}).get("rouge_mean") for c in topics_list]
-                fig_rouge.add_trace(go.Bar(
-                    name=role_label(mid), x=topics_disp, y=vals,
-                    marker_color=mcolor[mid],
-                    text=[f"{v:+.3f}" if v is not None else "" for v in vals],
-                    textposition="outside",
-                ))
-            fig_rouge.update_layout(
-                barmode="group", height=210,
-                margin=dict(l=0, r=0, t=10, b=0),
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#fafafa", size=11),
-                yaxis=dict(showgrid=True, gridcolor="#2e3a4a", zeroline=True, zerolinecolor="#667788"),
-                xaxis=dict(showgrid=False),
-                legend=dict(orientation="h", y=1.22, x=0, font=dict(size=10)),
-            )
-            st.plotly_chart(fig_rouge, use_container_width=True)
-            st.html(f"""
-            <div style="font-size:10px;color:#8899aa;line-height:1.6;margin-top:-4px">
-              <b style="color:#ccd6e0">Figure 1:</b> Mean ROUGE-L (c-i) by topic category,
-              candidate {ref_fig_clause}. Bars grouped per topic; higher values indicate
-              responses closer to the correct reference answer. Candidate is plotted rightmost
-              within each group.
-            </div>
-            """)
+        _chart_layout = dict(
+            barmode="group", height=300,
+            margin=dict(l=0, r=0, t=40, b=80),
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#ccd6e0", size=11),
+            legend=dict(orientation="h", y=1.12, x=0, font=dict(size=10)),
+            uniformtext=dict(minsize=8, mode="hide"),
+            xaxis=dict(showgrid=False, tickangle=-35, tickfont=dict(size=10)),
+        )
 
-        with col_hall:
-            fig_hall = go.Figure()
-            for mid in chart_models:
-                vals = [topic_data.get(mid, {}).get(c, {}).get("hall_rate") for c in topics_list]
-                fig_hall.add_trace(go.Bar(
-                    name=role_label(mid), x=topics_disp, y=vals,
-                    marker_color=mcolor[mid],
-                    text=[f"{v:.0f}%" if v is not None else "" for v in vals],
-                    textposition="outside",
-                ))
-            fig_hall.update_layout(
-                barmode="group", height=210,
-                margin=dict(l=0, r=0, t=10, b=0),
-                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#fafafa", size=11),
-                yaxis=dict(showgrid=True, gridcolor="#2e3a4a", title="Hallucination %"),
-                xaxis=dict(showgrid=False),
-                legend=dict(orientation="h", y=1.22, x=0, font=dict(size=10)),
-            )
-            st.plotly_chart(fig_hall, use_container_width=True)
-            st.html(f"""
-            <div style="font-size:10px;color:#8899aa;line-height:1.6;margin-top:-4px">
-              <b style="color:#ccd6e0">Figure 2:</b> Hallucination rate by topic category,
-              candidate {ref_fig_clause}. Hallucination rate is the share of questions
-              with ROUGE-L (c-i) &lt; 0; lower values indicate fewer questions answered in
-              the incorrect direction. Bars grouped per topic; candidate is plotted rightmost
-              within each group.
-            </div>
-            """)
+        fig_rouge = go.Figure()
+        for mid in chart_models:
+            vals = [topic_data.get(mid, {}).get(c, {}).get("rouge_mean") for c in topics_list]
+            fig_rouge.add_trace(go.Bar(
+                name=role_label(mid), x=topics_disp, y=vals,
+                marker_color=mcolor[mid],
+                text=[f"{v:+.3f}" if v is not None else "" for v in vals],
+                textposition="auto", textfont=dict(size=9),
+            ))
+        fig_rouge.update_layout(
+            **_chart_layout,
+            yaxis=dict(showgrid=True, gridcolor="#2e3a4a", zeroline=True, zerolinecolor="#667788"),
+        )
+        st.plotly_chart(fig_rouge, use_container_width=True)
+
+        fig_hall = go.Figure()
+        for mid in chart_models:
+            vals = [topic_data.get(mid, {}).get(c, {}).get("hall_rate") for c in topics_list]
+            fig_hall.add_trace(go.Bar(
+                name=role_label(mid), x=topics_disp, y=vals,
+                marker_color=mcolor[mid],
+                text=[f"{v:.0f}%" if v is not None else "" for v in vals],
+                textposition="auto", textfont=dict(size=9),
+            ))
+        fig_hall.update_layout(
+            **_chart_layout,
+            yaxis=dict(showgrid=True, gridcolor="#2e3a4a",
+                       title=dict(text="Hallucination %", font=dict(size=10))),
+        )
+        st.plotly_chart(fig_hall, use_container_width=True)
 
 
 
@@ -1961,20 +2000,21 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
 
         CSS_T4 = """
         <style>
-        .t4{width:100%;border-collapse:collapse;font-size:12px;margin:6px 0}
-        .t4 th{background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;
-          letter-spacing:.06em;padding:7px 12px;border:1px solid #2a3848;
-          white-space:nowrap;font-weight:600}
-        .t4 th.group{background:#111d2c;color:#4488bb;font-size:9px;letter-spacing:.1em;
+        .t4-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+        .t4{width:100%;border-collapse:collapse;font-size:11px;margin:6px 0}
+        .t4 th{background:#1a2535;color:#8899aa;font-size:9px;text-transform:uppercase;
+          letter-spacing:.04em;padding:5px 8px;border:1px solid #2a3848;
+          white-space:normal;word-break:break-word;font-weight:600}
+        .t4 th.group{background:#111d2c;color:#4488bb;font-size:8px;letter-spacing:.06em;
           text-align:center;border-bottom:2px solid #2e5080}
         .t4 th.overall{background:#131e30;border-left:2px solid #2e5080}
-        .t4 td{padding:6px 12px;border:1px solid #1e2a3a;color:#ccd6e0;
-          font-size:11px;text-align:right;white-space:normal;line-height:1.5}
-        .t4 td.model{text-align:left;font-weight:600;color:#eef2f7;font-size:11px;
-          background:#1a2535;border-right:2px solid #2e3a4a;white-space:nowrap}
-        .t4 td.metric{text-align:left;color:#8899aa;font-size:10px;text-transform:uppercase;
-          letter-spacing:.05em;background:#161f2e;border-right:1px solid #2a3848;
-          min-width:110px;white-space:nowrap}
+        .t4 td{padding:5px 8px;border:1px solid #1e2a3a;color:#ccd6e0;
+          font-size:10px;text-align:right;white-space:normal;line-height:1.4}
+        .t4 td.model{text-align:left;font-weight:600;color:#eef2f7;font-size:10px;
+          background:#1a2535;border-right:2px solid #2e3a4a;white-space:normal;word-break:break-word}
+        .t4 td.metric{text-align:left;color:#8899aa;font-size:9px;text-transform:uppercase;
+          letter-spacing:.04em;background:#161f2e;border-right:1px solid #2a3848;
+          min-width:80px;white-space:normal;word-break:break-word}
         .t4 td.overall{background:#131e30;border-left:2px solid #2e5080}
         .t4 td.best{font-weight:bold;color:#eef2f7}
         .t4 tr.mf td{border-top:2px solid #2e3a4a}
@@ -2001,32 +2041,13 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
         )
 
         html_parts = [CSS_T4, f"""
-        <div style="margin:12px 0 6px 0;font-size:12px;line-height:1.7;color:#ccd6e0">
-          <b style="color:#eef2f7">Table 1:</b> Direct question-answering audit of the candidate
-          model ({short(candidate_mid)}) {ref_clause}, across {n_topics} topic categories from
-          the real TruthfulQA benchmark ({len(questions_run)} questions, {total_calls} total
-          model calls).
-          <span style="color:#8899aa">
-          ROUGE-L (c-i) reports sim-to-correct &minus; sim-to-incorrect against TruthfulQA's own
-          labeled reference answers (Lin et al., 2022); positive values indicate responses lean
-          toward the factually correct answer. This is a raw similarity score, not a
-          hallucination metric on its own. Hallucination Rate is measured by the LLM-Judge
-          proxy* and is the share of questions per topic the judge classifies as hallucinated.
-          *"GPT-Judge" is TruthfulQA's own proposed metric (Lin et al., 2022), a fine-tuned
-          GPT-3 curie classifier, since deprecated by OpenAI, that BytePlus has no equivalent
-          of; this column uses {short(ENDPOINT_JUDGE)}, prompted (not fine-tuned) to classify
-          each answer as truthful or hallucinated against the same TruthfulQA labels, in its
-          place, enabled by default. "-" means the judge's response for that cell couldn't be
-          parsed as truthful/hallucinated. Signed percentages in
-          parentheses on the candidate row denote its difference from the reference baseline on
-          that cell (green = candidate ahead, red = candidate behind); "n/a" indicates the
-          reference value was too close to zero for a relative comparison to be well-defined.
-          Bold marks the best-performing model per column (lowest for Hallucination Rate,
-          highest for ROUGE-L). Overall is the unweighted mean across all audited topic
-          categories.
-          </span>
+        <div style="margin:8px 0 6px 0;font-size:11px;color:#8899aa;line-height:1.5">
+          <b style="color:#ccd6e0">Table 1:</b> {short(candidate_mid)} {ref_clause} &mdash;
+          {len(questions_run)} questions, {n_topics} topics, {total_calls} API calls.
+          ROUGE-L (c-i) = sim-to-correct &minus; sim-to-incorrect; positive = leans correct.
+          Hallucination Rate via LLM-Judge proxy. Bold = best per column.
         </div>
-        <table class="t4"><thead>
+        <div class="t4-scroll"><table class="t4"><thead>
           <tr>
             <th rowspan="2" style="text-align:left">Model</th>
             <th rowspan="2" style="text-align:left;min-width:110px">Metric</th>
@@ -2068,7 +2089,7 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                     html_parts.append(f'<td class="{ov_cls}">{ov_str}</td>')
                 html_parts.append("</tr>")
 
-        html_parts.append("</tbody></table>")
+        html_parts.append("</tbody></table></div>")
 
         st.html("".join(html_parts))
 
@@ -2154,40 +2175,9 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
 
         qid_order = list(qid_to_seed.keys())
 
-        # ── Hover/click decision widget (static, self-contained JS) ───
-        _widget_rows = []
-        for i, qid in enumerate(qid_order, 1):
-            seed = qid_to_seed[qid]
-            reasons, notes = verdicts[qid]
-            status, _, overridden = _final_status(qid, reasons)
-            rouge = q_data[candidate_mid][qid]["rouge_mean"]
-            judge = q_data[candidate_mid][qid].get("judge")
-            halluc_label = "Yes" if judge == 0 else "No" if judge == 1 else "Not assessed"
-            _widget_rows.append({
-                "i": f"{i:02d}",
-                "q": seed["q"],
-                "cat": seed["cat"].upper(),
-                "rouge": f"{rouge:+.3f}",
-                "halluc": halluc_label,
-                "dec": status,
-                "human": overridden,
-                "ans": q_data[candidate_mid][qid]["answer"],
-                "cor": seed["correct"],
-                "inc": seed["incorrect"],
-                "reasons": [detail for _label, detail in reasons],
-                "notes":   [detail for _label, detail in notes],
-            })
-        # .replace("</", "<\\/"): defends against a literal "</script>"
-        # substring in any question/answer text closing the script tag early.
-        _safe_json = json.dumps(_widget_rows).replace("</", "<\\/")
-        _widget_html = _DECISION_WIDGET_TEMPLATE.replace("__DATA_JSON__", _safe_json)
-        components.html(_widget_html, height=480, scrolling=False)
-
         st.caption(
             "ROUGE-L is reference only, not a hallucination signal. Hallucinated comes from "
-            "LLM-Judge (TruthfulQA's deprecated GPT-Judge, proxied) - the actual hallucination "
-            "metric. Hover or click a row above to preview it. The buttons below apply the "
-            "actual override - the widget above is static and can't trigger them itself."
+            "LLM-Judge (TruthfulQA's deprecated GPT-Judge, proxied) - the actual hallucination metric."
         )
 
         # ── Human Override - real buttons, one row per question, no
@@ -2216,31 +2206,19 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
         # Same column ratios reused for the header AND every row, so the
         # header is guaranteed to align - it's the same layout mechanism,
         # not a separate HTML grid that might not match Streamlit's own.
-        _col_ratios = [0.5, 3.2, 0.8, 0.8, 1.1, 0.85, 0.85, 1.0]
+        _col_ratios = [0.4, 3.2, 1.6, 0.65, 0.65, 0.65]
 
         # Outer split mirrors the top widget's structure: a table area and
         # a genuinely separate reserved panel - not just blank space within
         # the table's own rows, which would still have row-separator lines
         # crossing through it. Wrapped in its own keyed container so the
-        # :has()-based hover mechanism below has a real DOM ancestor to
-        # anchor against - decision_split genuinely contains both the
-        # table and the panel, which :has() can check directly.
-        _decision_split = st.container(key="decision_split")
-        with _decision_split:
-            _outer_table, _outer_panel = st.columns([2.7, 1], gap="medium")
-
-        # Accumulated while building the table rows below, then rendered
-        # into the panel afterward: each row's panel content (hidden by
-        # default) and the matching :has() rule that reveals it when that
-        # specific row is hovered.
-        _panel_blocks = []
         _click_rules = []
         _hover_rules = []
 
-        with _outer_table:
+        with st.container():
             with st.container(border=True, key="override_zone"):
                 _h = st.columns(_col_ratios)
-                for _col, _label in zip(_h, ["REF", "QUESTION", "ROUGE-L", "HALLUC.", "DECISION", "", "", ""]):
+                for _col, _label in zip(_h, ["REF", "QUESTION", "DECISION", "PASS", "FAIL", "ESC"]):
                     with _col:
                         st.html(
                             f"<div style='font-size:9px;font-weight:600;letter-spacing:.08em;"
@@ -2255,7 +2233,7 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                     judge = q_data[candidate_mid][qid].get("judge")
                     halluc_label = "Yes" if judge == 0 else "No" if judge == 1 else "Not assessed"
                     answer = q_data[candidate_mid][qid]["answer"]
-                    qtext = seed["q"][:42] + ("..." if len(seed["q"]) > 42 else "")
+                    qtext = seed["q"]
                     status_bg = {"PASS": "rgba(22,163,74,.12)", "FAIL": "rgba(220,38,38,.12)", "ESCALATE": "rgba(245,158,11,.12)"}.get(status, "rgba(100,116,139,.12)")
                     status_bd = {"PASS": "rgba(22,163,74,.22)", "FAIL": "rgba(220,38,38,.22)", "ESCALATE": "rgba(245,158,11,.22)"}.get(status, "rgba(100,116,139,.22)")
                     status_sym = {"PASS": "&#10003;", "FAIL": "&#10005;", "ESCALATE": "&#9873;"}.get(status, "")
@@ -2272,7 +2250,7 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                     if not reasons and not notes:
                         _reasoning_html = "<div style='font-size:10px;color:#4ade80'>No issues detected on any measured signal.</div>"
 
-                    c_ref, c_q, c_rouge, c_hal, c_dec, c_pass, c_fail, c_esc = st.columns(_col_ratios)
+                    c_ref, c_q, c_dec, c_pass, c_fail, c_esc = st.columns(_col_ratios)
                     with c_ref:
                         st.html(f"<span style='font-family:monospace;font-size:9px;color:rgba(100,116,139,.7)'>{i:02d}</span>")
                     with c_q:
@@ -2280,13 +2258,12 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                             f"<input type='radio' name='decision_row_select' id='row-radio-{i}' class='row-radio-{i}' "
                             f"style='position:absolute;opacity:0;width:0;height:0;pointer-events:none'>"
                             f"<label for='row-radio-{i}' class='row-trig row-trig-{i}' style='display:block;cursor:pointer;margin:0'>"
-                            f"<div style='font-weight:600;color:#e2e8f0;font-size:11px;white-space:nowrap;"
-                            f"overflow:hidden;text-overflow:ellipsis'>{qtext}</div>"
+                            f"<div style='font-weight:600;color:#e2e8f0;font-size:11px;"
+                            f"white-space:normal;word-break:break-word;line-height:1.4'>{qtext}</div>"
                             f"<div style='font-size:9px;color:#475569;text-transform:uppercase'>{seed['cat'].upper()}</div>"
                             f"</label>"
                         )
-                    _panel_blocks.append(f"""
-                    <div class="panel-row-{i}" style="display:none">
+                    st.html(f"""<div class="panel-row-{i}" style="display:none;border-top:1px solid #1e2a3a;padding:10px 6px 6px;margin-bottom:4px;background:#0d111a;border-radius:0 0 6px 6px">
                       <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Row {i:02d}</div>
                       <div style="font-size:12px;font-weight:700;color:#e2e8f0;margin-bottom:2px;line-height:1.4">{seed['q']}</div>
                       <div style="font-size:9px;color:#475569;text-transform:uppercase;margin-bottom:8px">{seed['cat'].upper()}</div>
@@ -2299,82 +2276,47 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
                       <div style="font-size:9.5px;color:#475569;margin-bottom:7px"><b>Incorrect ref:</b> {seed['incorrect']}</div>
                       <div style="font-size:8.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#475569;margin-bottom:3px">Automated Reasoning</div>
                       {_reasoning_html}
-                    </div>
-                    """)
+                    </div>""")
                     _click_rules.append(
-                        f'[class*="decision_split"]:has(.row-radio-{i}:checked) .panel-default{{display:none}}\n'
-                        f'[class*="decision_split"]:has(.row-radio-{i}:checked) .panel-row-{i}{{display:block !important}}\n'
+                        f'[class*="override_zone"]:has(.row-radio-{i}:checked) .panel-row-{i}{{display:block !important}}\n'
                         f'[class*="override_zone"] [data-testid="stHorizontalBlock"]:has(.row-radio-{i}:checked)'
                         f'{{background:rgba(99,102,241,.10) !important;border-left:2px solid #6366f1}}'
                     )
                     _hover_rules.append(
-                        f'[class*="decision_split"]:has(.row-trig-{i}:hover) .panel-row-{i}{{display:block !important}}'
+                        f'[class*="override_zone"]:has(.row-trig-{i}:hover) .panel-row-{i}{{display:block !important}}'
                     )
-                    with c_rouge:
-                        st.html(f"<span style='font-size:11px;color:#94a3b8'>{rouge:+.3f}</span>")
-                    with c_hal:
-                        st.html(f"<span style='font-size:11px;color:#94a3b8'>{halluc_label}</span>")
                     with c_dec:
                         st.html(
                             f"<span style='display:inline-flex;align-items:center;gap:3px;padding:2px 6px;"
                             f"border-radius:3px;font-size:9px;font-weight:700;background:{status_bg};color:{scol};"
                             f"border:1px solid {status_bd};white-space:nowrap'>{status_sym} {status}"
                             f"{' &middot; human' if overridden else ''}</span>"
+                            f"<div style='font-size:8px;color:#667788;margin-top:2px;white-space:nowrap'>"
+                            f"R {rouge:+.3f} · {halluc_label}</div>"
                         )
                     with c_pass:
                         _pass_active = (status == "PASS" and not overridden)
-                        if st.button("\u2713 Pass" if _pass_active else "Pass", key=f"btn_pass_{qid}", use_container_width=True):
+                        if st.button("\u2713" if _pass_active else "P", key=f"btn_pass_{qid}", use_container_width=True):
                             overrides.pop(qid, None) if (not reasons) else overrides.update({qid: "PASS"})
                             st.session_state.s1_overrides = overrides
                             st.rerun()
                     with c_fail:
                         _fail_active = (status == "FAIL" and not overridden)
-                        if st.button("\u2713 Fail" if _fail_active else "Fail", key=f"btn_fail_{qid}", use_container_width=True):
+                        if st.button("\u2713" if _fail_active else "F", key=f"btn_fail_{qid}", use_container_width=True):
                             overrides.pop(qid, None) if reasons else overrides.update({qid: "FAIL"})
                             st.session_state.s1_overrides = overrides
                             st.rerun()
                     with c_esc:
                         _esc_active = (status == "ESCALATE")
-                        if st.button("\u2713 Escalate" if _esc_active else "Escalate", key=f"btn_esc_{qid}", use_container_width=True):
+                        if st.button("\u2713" if _esc_active else "E", key=f"btn_esc_{qid}", use_container_width=True):
                             overrides[qid] = "ESCALATE"
                             st.session_state.s1_overrides = overrides
                             st.rerun()
 
-        with _outer_panel:
-            # The server-rendered default is always empty - Python has no
-            # way to know which radio is checked client-side in a
-            # no-backend design. Everything else is handled by the
-            # generated CSS below, entirely in the browser.
-            _default_inner_html = (
-                '<div style="display:flex;align-items:center;justify-content:center;'
-                'min-height:300px;color:#334155;font-size:11px;text-align:center">'
-                'Click a question to select it.</div>'
-            )
-
-            # ONE shared bordered box: panel-default's content plus every
-            # per-row block (display:none by default) all live inside it
-            # as siblings - the generated :has() rules below reveal
-            # exactly one at a time, by checking real DOM ancestry rather
-            # than computing any position.
-            st.html(f"""
-            <div style="background:#040508;border:1px solid #2a3848;border-radius:8px;padding:12px 14px;height:100%;min-height:300px">
-              <div class="panel-default">{_default_inner_html}</div>
-              {''.join(_panel_blocks)}
-            </div>
-            """)
-            # Layering matters here: click-rules set the persistent base
-            # state (whichever radio is checked, or nothing). The hover
-            # catch-all then resets everything to hidden while ANY row is
-            # hovered, overriding the click state. The hover-specific
-            # rules come last so they win the tie against that catch-all
-            # for the one row actually being hovered. When the mouse
-            # leaves, the hover rules stop matching and the click-rules
-            # (still matching, since :checked persists) take back over.
-            _all_rules = _click_rules + [
-                '[class*="decision_split"]:has(.row-trig:hover) .panel-default{display:none !important}',
-                '[class*="decision_split"]:has(.row-trig:hover) [class^="panel-row-"]{display:none !important}',
-            ] + _hover_rules
-            st.html(f"<style>{chr(10).join(_all_rules)}</style>")
+        _all_rules = _click_rules + [
+            '[class*="override_zone"]:has(.row-trig:hover) [class^="panel-row-"]{display:none !important}',
+        ] + _hover_rules
+        st.html(f"<style>{chr(10).join(_all_rules)}</style>")
 
         # Inspect a row's full reasoning - read-only context, not a second
         # place to set the decision (that's the buttons above).
@@ -2506,7 +2448,6 @@ if st.session_state.mode == "Sprint 1 - LLMAuditor":
 
     else:
         st.markdown("### TruthfulQA Baseline")
-        render_introduction()
         st.markdown(
             "Select topics and models in the sidebar, then run the audit."
         )
@@ -2679,7 +2620,6 @@ if run2:
     st.rerun()
 
 st.html(CSS + '<div style="font-size:13px;font-weight:700;color:#eef2f7;margin:2px 0 2px 0">ByteDance LLM Audit Suite</div><div class="section-label">Peer review pipeline &nbsp;·&nbsp; Multi-model evaluation &nbsp;·&nbsp; Human-in-the-loop &nbsp;·&nbsp; Meta-review</div>')
-render_introduction()
 
 if st.session_state.stage == "ready":
     st.info("Select a topic in the sidebar and click **Run audit** to begin.")

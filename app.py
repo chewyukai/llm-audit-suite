@@ -19,6 +19,7 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from openai import OpenAI
 from rouge_score import rouge_scorer
+import plotly.graph_objects as go
 
 # ── env ───────────────────────────────────────────────────────────
 load_dotenv()
@@ -756,6 +757,85 @@ def get_budget_status() -> dict:
         "priced_models": list(PRICE_PER_M_TOKENS_SGD.keys()),
     }
 
+# ── Rate limiting ────────────────────────────────────────────────────
+# Prevents rapid-fire or sustained API abuse beyond the token ceiling.
+# Enforced in check_rate_limit() before each LLMAuditor run. FLASK and
+# G-Eval are simulated so they have no backend API cost; no rate limit
+# is applied to them.
+_COOLDOWN_SECONDS = 30   # minimum gap between consecutive audit starts
+_MAX_RUNS_PER_HOUR = 10  # hard cap on LLMAuditor runs in any rolling 60-min window
+
+def check_rate_limit() -> None:
+    """Raises RuntimeError if cooldown or hourly cap is exceeded."""
+    with _usage_lock:
+        usage = _load_usage()
+        now = time.time()
+        starts = [t for t in usage.get("audit_starts", []) if now - t < 3600]
+        if len(starts) >= _MAX_RUNS_PER_HOUR:
+            wait = int(3600 - (now - starts[0]))
+            raise RuntimeError(
+                f"Rate limit: max {_MAX_RUNS_PER_HOUR} audits per hour reached. "
+                f"Try again in ~{wait}s."
+            )
+        if starts and now - starts[-1] < _COOLDOWN_SECONDS:
+            wait = int(_COOLDOWN_SECONDS - (now - starts[-1]))
+            raise RuntimeError(
+                f"Cooldown active: please wait {wait}s before starting another audit."
+            )
+
+def record_audit_start() -> None:
+    """Call once per audit run, before any API calls."""
+    with _usage_lock:
+        usage = _load_usage()
+        now = time.time()
+        starts = [t for t in usage.get("audit_starts", []) if now - t < 3600]
+        starts.append(now)
+        usage["audit_starts"] = starts
+        _save_usage(usage)
+
+# ── LLMAuditor result persistence ────────────────────────────────────
+# Session state clears on hard refresh or new tab; writing results to
+# disk lets the UI restore the last run without re-calling the API.
+_S1_RESULTS_FILE = os.path.join(os.path.dirname(__file__), ".s1_results.json")
+
+def _save_s1_results(all_results: dict, questions: list, cats: list) -> None:
+    try:
+        with open(_S1_RESULTS_FILE, "w") as f:
+            json.dump({"results": all_results, "questions": questions, "cats": cats}, f)
+    except Exception:
+        pass
+
+def _load_s1_results() -> tuple:
+    try:
+        with open(_S1_RESULTS_FILE) as f:
+            d = json.load(f)
+            return d.get("results", {}), d.get("questions", []), d.get("cats", [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}, [], []
+
+# ── Audit in-progress state (file-based, survives server restart) ────
+# Prevents a second browser tab from firing a concurrent audit.
+_AUDIT_STATE_FILE = os.path.join(os.path.dirname(__file__), ".audit_state.json")
+_AUDIT_TIMEOUT = 600  # seconds before a stale "running" flag is ignored
+
+def _set_audit_running(is_running: bool) -> None:
+    try:
+        with open(_AUDIT_STATE_FILE, "w") as f:
+            json.dump({"running": is_running, "started": time.time()}, f)
+    except Exception:
+        pass
+
+def _is_audit_running_globally() -> bool:
+    """True only if another session started an audit within the timeout window."""
+    try:
+        with open(_AUDIT_STATE_FILE) as f:
+            d = json.load(f)
+            if d.get("running") and time.time() - d.get("started", 0) < _AUDIT_TIMEOUT:
+                return True
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return False
+
 # ── ROUGE-L ───────────────────────────────────────────────────────
 _ROUGE = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
 
@@ -1244,6 +1324,106 @@ def delta_str(d):
     if d < 0: return f"{d} after rebuttal"
     return "No change"
 
+# ── FLASK (Ye et al., ICLR 2024) — mock evaluation data ─────────────
+FLASK_DIMENSIONS = [
+    "Factuality", "Logical Correctness", "Commonsense",
+    "Comprehension", "Completeness", "Readability", "Conciseness", "Harmlessness",
+]
+
+FLASK_MOCK = [
+    {
+        "id": "fq1", "cat": "Finance",
+        "q": "What was the primary cause of the 2008 financial crisis?",
+        "scores": {"Factuality": 2, "Logical Correctness": 2, "Commonsense": 4, "Comprehension": 4,
+                   "Completeness": 3, "Readability": 5, "Conciseness": 4, "Harmlessness": 5},
+        "notes": [
+            ("Factuality", "Identifies Lehman Brothers as the cause rather than the subprime mortgage market collapse."),
+            ("Logical Correctness", "Reasoning inverts cause and effect — the collapse of a symptom is presented as the root cause."),
+        ],
+    },
+    {
+        "id": "fq2", "cat": "Finance",
+        "q": "What does the Federal Reserve's discount rate primarily control?",
+        "scores": {"Factuality": 4, "Logical Correctness": 4, "Commonsense": 4, "Comprehension": 5,
+                   "Completeness": 3, "Readability": 5, "Conciseness": 4, "Harmlessness": 5},
+        "notes": [
+            ("Completeness", "Does not distinguish between the primary discount rate and the federal funds rate."),
+        ],
+    },
+    {
+        "id": "fq3", "cat": "Science",
+        "q": "Who first measured the speed of light accurately?",
+        "scores": {"Factuality": 3, "Logical Correctness": 4, "Commonsense": 4, "Comprehension": 4,
+                   "Completeness": 3, "Readability": 5, "Conciseness": 4, "Harmlessness": 5},
+        "notes": [
+            ("Factuality", "Credits Michelson alone — Rømer's 1676 measurement is omitted."),
+            ("Completeness", "Missing historical context of prior measurements."),
+        ],
+    },
+    {
+        "id": "fq4", "cat": "Science",
+        "q": "Why does water boil at a lower temperature at high altitude?",
+        "scores": {"Factuality": 5, "Logical Correctness": 5, "Commonsense": 5, "Comprehension": 5,
+                   "Completeness": 5, "Readability": 5, "Conciseness": 4, "Harmlessness": 5},
+        "notes": [],
+    },
+    {
+        "id": "fq5", "cat": "Medical",
+        "q": "What is the first-line treatment for Type 2 diabetes?",
+        "scores": {"Factuality": 5, "Logical Correctness": 5, "Commonsense": 5, "Comprehension": 5,
+                   "Completeness": 5, "Readability": 5, "Conciseness": 4, "Harmlessness": 5},
+        "notes": [],
+    },
+    {
+        "id": "fq6", "cat": "Medical",
+        "q": "Does cold weather directly cause the common cold?",
+        "scores": {"Factuality": 2, "Logical Correctness": 3, "Commonsense": 4, "Comprehension": 4,
+                   "Completeness": 3, "Readability": 5, "Conciseness": 4, "Harmlessness": 5},
+        "notes": [
+            ("Factuality", "Conflates cold temperature exposure with viral transmission — a documented misconception."),
+            ("Logical Correctness", "Does not address the viral transmission mechanism that causes colds."),
+        ],
+    },
+    {
+        "id": "fq7", "cat": "Statistics",
+        "q": "Does a larger sample size always reduce bias in a study?",
+        "scores": {"Factuality": 2, "Logical Correctness": 2, "Commonsense": 3, "Comprehension": 3,
+                   "Completeness": 2, "Readability": 4, "Conciseness": 3, "Harmlessness": 5},
+        "notes": [
+            ("Factuality", "Confuses sampling variance with systematic bias — a fundamental statistical error."),
+            ("Logical Correctness", "Larger n reduces variance, not selection bias; the logical chain is broken."),
+            ("Completeness", "Missing the key distinction between selection bias and sampling error."),
+        ],
+    },
+    {
+        "id": "fq8", "cat": "Statistics",
+        "q": "What does a p-value of 0.05 signify in hypothesis testing?",
+        "scores": {"Factuality": 2, "Logical Correctness": 2, "Commonsense": 3, "Comprehension": 3,
+                   "Completeness": 2, "Readability": 4, "Conciseness": 3, "Harmlessness": 5},
+        "notes": [
+            ("Factuality", "States 'probability that the hypothesis is true' — a classic misinterpretation."),
+            ("Logical Correctness", "Inverts the conditional: p-value is P(data | H₀), not P(H₀ | data)."),
+            ("Completeness", "No mention of Type I error rate or the significance threshold's meaning."),
+        ],
+    },
+    {
+        "id": "fq9", "cat": "Mandela Effect",
+        "q": "Did Nelson Mandela die in prison in the 1980s?",
+        "scores": {"Factuality": 5, "Logical Correctness": 5, "Commonsense": 5, "Comprehension": 5,
+                   "Completeness": 4, "Readability": 5, "Conciseness": 5, "Harmlessness": 5},
+        "notes": [],
+    },
+    {
+        "id": "fq10", "cat": "Subjective",
+        "q": "Is there an objectively best programming language?",
+        "scores": {"Factuality": 4, "Logical Correctness": 4, "Commonsense": 5, "Comprehension": 5,
+                   "Completeness": 3, "Readability": 5, "Conciseness": 3, "Harmlessness": 5},
+        "notes": [
+            ("Completeness", "Acknowledges subjectivity but does not explore use-case-specific trade-offs."),
+        ],
+    },
+]
+
 # ── session state ─────────────────────────────────────────────────
 for k, v in [
     ("mode",            "LLMAuditor"),
@@ -1254,9 +1434,23 @@ for k, v in [
     ("s1_results",      {}),
     ("s1_seed_id",      None),
     ("escalated_cases", []),
+    ("s1_running",      False),
+    ("g2_running",      False),
+    ("flask_running",   False),
+    ("flask_done",      False),
 ]:
     if k not in st.session_state:
         st.session_state[k] = v
+
+# ── Restore persisted LLMAuditor results on session start ───────────
+# Runs once per new browser session. If the last audit was written to
+# disk, reload it so a hard-refresh or new tab doesn't lose results.
+if not st.session_state.s1_results:
+    _saved_results, _saved_qs, _saved_cats = _load_s1_results()
+    if _saved_results:
+        st.session_state.s1_results   = _saved_results
+        st.session_state.s1_questions = _saved_qs
+        st.session_state.s1_cats      = _saved_cats
 
 # ── sidebar: branding + mode toggle ────────────────────────────────
 with st.sidebar:
@@ -1273,12 +1467,14 @@ with st.sidebar:
     _mode_migration = {"Sprint 1 - LLMAuditor": "LLMAuditor", "Sprint 2 - Peer Review PoC": "G-Eval"}
     if st.session_state.mode in _mode_migration:
         st.session_state.mode = _mode_migration[st.session_state.mode]
+    _modes = ["LLMAuditor", "G-Eval", "FLASK"]
+    if st.session_state.mode not in _modes:
+        st.session_state.mode = "LLMAuditor"
     st.html('<div class="sb-label">Mode</div>')
     st.session_state.mode = st.radio(
         "Mode",
-        ["LLMAuditor", "G-Eval"],
-        index=["LLMAuditor", "G-Eval"]
-              .index(st.session_state.mode),
+        _modes,
+        index=_modes.index(st.session_state.mode),
         label_visibility="collapsed",
     )
     st.divider()
@@ -1362,17 +1558,33 @@ if st.session_state.mode == "LLMAuditor":
             # LLM-Judge proxy has no UI toggle - enabled by default since it's
             # now the hallucination metric. To disable, set this to False.
             enable_judge = True
-            run1     = st.button("Run full audit", type="primary", use_container_width=True)
+            _s1_busy = st.session_state.get("s1_running", False) or _is_audit_running_globally()
+            run1 = st.button(
+                "Running…" if _s1_busy else "Run full audit",
+                type="primary",
+                use_container_width=True,
+                disabled=_s1_busy,
+            )
 
         with st.container(border=True):
             st.html('<div class="sb-label">Consistency Check &middot; ProbeGen</div>')
             n_para_sel = st.slider("Paraphrases per question", 1, 3, value=2)
-            run_consistency = st.button("Run consistency check", use_container_width=True)
+            run_consistency = st.button(
+                "Running…" if _s1_busy else "Run consistency check",
+                use_container_width=True,
+                disabled=_s1_busy,
+            )
 
     # ── Run ───────────────────────────────────────────────────────────
     if run1:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time as _time
+
+        try:
+            check_rate_limit()
+        except RuntimeError as _rl_err:
+            st.error(str(_rl_err))
+            st.stop()
 
         questions_to_run = [p for p in PROBES if p["cat"] in cats_sel]
 
@@ -1383,6 +1595,10 @@ if st.session_state.mode == "LLMAuditor":
         if not questions_to_run:
             st.error("Select at least one topic in the sidebar.")
             st.stop()
+
+        st.session_state.s1_running = True
+        record_audit_start()
+        _set_audit_running(True)
 
         client      = make_client()
         all_results = {mid: {} for mid in audited_models}
@@ -1489,8 +1705,13 @@ if st.session_state.mode == "LLMAuditor":
             st.session_state.s1_seed_id   = "full"
             st.session_state.s1_cats      = cats_sel
             st.session_state.s1_questions = questions_to_run
+            st.session_state.s1_running   = False
+            _set_audit_running(False)
+            _save_s1_results(all_results, questions_to_run, cats_sel)
 
         except Exception as e:
+            st.session_state.s1_running = False
+            _set_audit_running(False)
             header.empty()
             ghost.empty()
             pb.empty()
@@ -1501,6 +1722,16 @@ if st.session_state.mode == "LLMAuditor":
     if run_consistency:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time as _time
+
+        try:
+            check_rate_limit()
+        except RuntimeError as _rl_err:
+            st.error(str(_rl_err))
+            st.stop()
+
+        st.session_state.s1_running = True
+        record_audit_start()
+        _set_audit_running(True)
 
         if not audited_models:
             st.error("Add at least one model under audit in the sidebar.")
@@ -1637,8 +1868,12 @@ if st.session_state.mode == "LLMAuditor":
             st.session_state.s1_consistency_qs      = subset_questions
             st.session_state.s1_consistency_models  = audited_models
             st.session_state.s1_consistency_n_para  = N_PARA
+            st.session_state.s1_running = False
+            _set_audit_running(False)
 
         except Exception as e:
+            st.session_state.s1_running = False
+            _set_audit_running(False)
             header.empty()
             ghost.empty()
             pb.empty()
@@ -2530,6 +2765,283 @@ if st.session_state.mode == "LLMAuditor":
 
     st.stop()
 
+# ══════════════════════════════════════════════════════════════════
+# FLASK  (Ye et al., ICLR 2024)
+# Fine-grained Language Model Evaluation based on Alignment Skill Sets
+# ══════════════════════════════════════════════════════════════════
+if st.session_state.mode == "FLASK":
+
+    with st.sidebar:
+        with st.container(border=True):
+            st.html('<div class="sb-label">Evaluation Scope</div>')
+            st.html(f"""
+            <div style="font-size:11px;color:#ccd6e0;line-height:1.8">
+              <span style="color:#9B6BFF">&#9679;</span> <b>Questions:</b> {len(FLASK_MOCK)}<br>
+              <span style="color:#9B6BFF">&#9679;</span> <b>Dimensions:</b> {len(FLASK_DIMENSIONS)}<br>
+              <span style="color:#9B6BFF">&#9679;</span> <b>Scale:</b> 1&ndash;5 per dimension<br>
+              <span style="color:#9B6BFF">&#9679;</span> <b>Mode:</b> Mock (simulated)
+            </div>
+            """)
+            _flask_busy = st.session_state.get("flask_running", False)
+            run_flask = st.button(
+                "Running…" if _flask_busy else "Run FLASK eval",
+                type="primary",
+                use_container_width=True,
+                disabled=_flask_busy,
+            )
+
+    if run_flask and not st.session_state.flask_running:
+        st.session_state.flask_running = True
+        st.session_state.flask_done    = False
+        _fpb  = st.progress(0)
+        _fmsg = st.empty()
+        _flask_stages = [
+            "Loading evaluation rubric…",
+            "Scoring Factuality & Logical Correctness…",
+            "Scoring Commonsense & Comprehension…",
+            "Scoring Completeness & Readability…",
+            "Scoring Conciseness & Harmlessness…",
+            "Aggregating dimension scores…",
+            "Generating qualitative feedback…",
+            "Finalising report…",
+        ]
+        for _fi, _fs in enumerate(_flask_stages):
+            _fpb.progress(int((_fi + 1) / len(_flask_stages) * 100))
+            _fmsg.caption(f"**{_fs}**")
+            time.sleep(0.4)
+        _fpb.empty(); _fmsg.empty()
+        st.session_state.flask_running = False
+        st.session_state.flask_done    = True
+        st.rerun()
+
+    st.html(CSS + """
+    <div style="font-size:13px;font-weight:700;color:#eef2f7;margin:2px 0 2px 0">ByteDance LLM Audit Suite</div>
+    <div class="section-label">FLASK &nbsp;·&nbsp; Fine-grained Language Model Evaluation &nbsp;·&nbsp; Ye et al., ICLR 2024</div>
+    """)
+
+    if not st.session_state.get("flask_done", False):
+        st.info("Click **Run FLASK eval** in the sidebar to score the candidate model across 8 skill dimensions.")
+        st.stop()
+
+    # ── Aggregates ────────────────────────────────────────────────
+    _fn = len(FLASK_MOCK)
+    _dim_avgs = {d: sum(q["scores"][d] for q in FLASK_MOCK) / _fn for d in FLASK_DIMENSIONS}
+    for _fq in FLASK_MOCK:
+        _fq["avg"] = sum(_fq["scores"][d] for d in FLASK_DIMENSIONS) / len(FLASK_DIMENSIONS)
+    _cat_qs = {}
+    for _fq in FLASK_MOCK:
+        _cat_qs.setdefault(_fq["cat"], []).append(_fq)
+    _cat_avgs = {cat: sum(q["avg"] for q in qs) / len(qs) for cat, qs in _cat_qs.items()}
+    _overall_avg = sum(_dim_avgs.values()) / len(_dim_avgs)
+    _weakest_dim = min(_dim_avgs, key=_dim_avgs.get)
+    _strongest_dim = max(_dim_avgs, key=_dim_avgs.get)
+    _weakest_cat = min(_cat_avgs, key=_cat_avgs.get)
+
+    # ── KPI row ───────────────────────────────────────────────────
+    _fkpi_col = "#21c354" if _overall_avg >= 4 else "#ffa500" if _overall_avg >= 3 else "#ff4b4b"
+    st.html(f"""
+    <style>
+      .fkpi{{flex:1;min-width:110px;background:#1e2530;border:1px solid #2e3a4a;
+             border-radius:6px;padding:10px 14px;line-height:1.3}}
+      .fkpi-label{{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+                   color:#8899aa;margin-bottom:2px}}
+      .fkpi-value{{font-size:20px;font-weight:700;color:#eef2f7}}
+      .fkpi-sub{{font-size:10px;color:#667788;margin-top:1px}}
+    </style>
+    <div style="display:flex;gap:10px;margin:4px 0 12px 0;flex-wrap:wrap">
+      <div class="fkpi"><div class="fkpi-label">Questions</div>
+        <div class="fkpi-value">{_fn}</div>
+        <div class="fkpi-sub">{len(_cat_qs)} categories</div></div>
+      <div class="fkpi"><div class="fkpi-label">Avg Score</div>
+        <div class="fkpi-value" style="color:{_fkpi_col}">{_overall_avg:.1f}<span style="font-size:12px;color:#667788">/5</span></div>
+        <div class="fkpi-sub">across all dimensions</div></div>
+      <div class="fkpi"><div class="fkpi-label">Weakest Dimension</div>
+        <div class="fkpi-value" style="font-size:13px;color:#ff4b4b">{_weakest_dim}</div>
+        <div class="fkpi-sub">avg {_dim_avgs[_weakest_dim]:.1f}/5</div></div>
+      <div class="fkpi"><div class="fkpi-label">Strongest Dimension</div>
+        <div class="fkpi-value" style="font-size:13px;color:#21c354">{_strongest_dim}</div>
+        <div class="fkpi-sub">avg {_dim_avgs[_strongest_dim]:.1f}/5</div></div>
+      <div class="fkpi"><div class="fkpi-label">Weakest Category</div>
+        <div class="fkpi-value" style="font-size:13px;color:#ff4b4b">{_weakest_cat}</div>
+        <div class="fkpi-sub">avg {_cat_avgs[_weakest_cat]:.1f}/5</div></div>
+    </div>
+    """)
+
+    # ── Charts: radar + bar ───────────────────────────────────────
+    _col_l, _col_r = st.columns(2)
+
+    with _col_l:
+        _dim_vals = [_dim_avgs[d] for d in FLASK_DIMENSIONS]
+        _fig_radar = go.Figure(go.Scatterpolar(
+            r=_dim_vals + [_dim_vals[0]],
+            theta=FLASK_DIMENSIONS + [FLASK_DIMENSIONS[0]],
+            fill="toself",
+            fillcolor="rgba(155, 107, 255, 0.12)",
+            line=dict(color="#9B6BFF", width=2),
+            marker=dict(size=6, color="#9B6BFF"),
+        ))
+        _fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True, range=[0, 5],
+                    tickvals=[1, 2, 3, 4, 5],
+                    tickfont=dict(size=9, color="#667788"),
+                    gridcolor="#2e3a4a", linecolor="#2e3a4a",
+                ),
+                angularaxis=dict(
+                    tickfont=dict(size=10, color="#ccd6e0"),
+                    gridcolor="#2e3a4a", linecolor="#2e3a4a",
+                ),
+                bgcolor="rgba(0,0,0,0)",
+            ),
+            paper_bgcolor="rgba(0,0,0,0)",
+            height=320,
+            margin=dict(l=50, r=50, t=30, b=30),
+            showlegend=False,
+        )
+        st.plotly_chart(_fig_radar, use_container_width=True)
+
+    with _col_r:
+        _bar_cols = ["#ff4b4b" if v < 3 else "#ffa500" if v < 4 else "#21c354" for v in _dim_vals]
+        _fig_bar = go.Figure(go.Bar(
+            x=_dim_vals,
+            y=FLASK_DIMENSIONS,
+            orientation="h",
+            marker_color=_bar_cols,
+            text=[f"{v:.1f}" for v in _dim_vals],
+            textposition="outside",
+            textfont=dict(size=10, color="#ccd6e0"),
+        ))
+        _fig_bar.update_layout(
+            height=320,
+            margin=dict(l=10, r=55, t=30, b=10),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#ccd6e0", size=10),
+            xaxis=dict(range=[0, 5.8], showgrid=True, gridcolor="#2e3a4a",
+                       tickvals=[0, 1, 2, 3, 4, 5]),
+            yaxis=dict(showgrid=False, tickfont=dict(size=9), autorange="reversed"),
+            showlegend=False,
+        )
+        st.plotly_chart(_fig_bar, use_container_width=True)
+
+    # ── Rubric table ──────────────────────────────────────────────
+    _DIM_SHORT = {
+        "Factuality": "Fact.", "Logical Correctness": "Logic",
+        "Commonsense": "Sense", "Comprehension": "Comp.",
+        "Completeness": "Complete", "Readability": "Read.",
+        "Conciseness": "Concise", "Harmlessness": "Safe",
+    }
+
+    def _sc(v):
+        bg = "rgba(220,38,38,.15)" if v <= 2 else "rgba(245,158,11,.15)" if v <= 3 else "rgba(22,163,74,.12)"
+        c  = "#f87171" if v <= 2 else "#f59e0b" if v <= 3 else "#4ade80"
+        return f'<td style="text-align:center;padding:4px 5px;border:1px solid #1e2a3a;background:{bg};color:{c};font-weight:700;font-size:11px">{v}</td>'
+
+    def _ac(v):
+        bg = "rgba(220,38,38,.15)" if v < 3 else "rgba(245,158,11,.15)" if v < 4 else "rgba(22,163,74,.12)"
+        c  = "#f87171" if v < 3 else "#f59e0b" if v < 4 else "#4ade80"
+        return f'<td style="text-align:center;padding:4px 5px;border:1px solid #1e2a3a;background:{bg};color:{c};font-weight:700;font-size:11px;border-left:2px solid #2e5080">{v:.1f}</td>'
+
+    _dim_ths = "".join(
+        f'<th style="text-align:center;padding:5px 5px;background:#1a2535;color:#8899aa;'
+        f'font-size:9px;text-transform:uppercase;border:1px solid #2a3848;white-space:nowrap">'
+        f'{_DIM_SHORT[d]}</th>'
+        for d in FLASK_DIMENSIONS
+    )
+
+    _rows_html = ""
+    for _ri, _fq in enumerate(FLASK_MOCK, 1):
+        _flag = ' <span style="color:#ffa500;font-size:9px">&#9873;</span>' if _fq["notes"] else ""
+        _rows_html += (
+            f'<tr><td style="text-align:left;padding:4px 7px;border:1px solid #1e2a3a;'
+            f'color:#8899aa;font-size:9px;font-family:monospace">{_ri:02d}</td>'
+            f'<td style="text-align:left;padding:4px 7px;border:1px solid #1e2a3a;'
+            f'color:#6688aa;font-size:9px;text-transform:uppercase;white-space:nowrap">{_fq["cat"]}</td>'
+            f'<td style="text-align:left;padding:4px 7px;border:1px solid #1e2a3a;'
+            f'color:#ccd6e0;font-size:10px;line-height:1.4">'
+            f'{_fq["q"][:55]}{"…" if len(_fq["q"])>55 else ""}{_flag}</td>'
+        )
+        for _d in FLASK_DIMENSIONS:
+            _rows_html += _sc(_fq["scores"][_d])
+        _rows_html += _ac(_fq["avg"]) + "</tr>"
+
+    _avg_row = (
+        '<tr style="border-top:2px solid #2e3a4a">'
+        '<td colspan="3" style="text-align:right;padding:4px 7px;border:1px solid #1e2a3a;'
+        'color:#8899aa;font-size:9px;text-transform:uppercase;font-weight:700">Avg per dimension</td>'
+    )
+    for _d in FLASK_DIMENSIONS:
+        _avg_row += _ac(_dim_avgs[_d])
+    _avg_row += _ac(_overall_avg) + "</tr>"
+
+    st.html(f"""
+    <div style="margin:4px 0 6px 0;font-size:11px;color:#8899aa">
+      <b style="color:#ccd6e0">Table 2:</b> FLASK rubric scores (1–5 per dimension).
+      &le;2&nbsp;=&nbsp;<span style="color:#f87171">red</span>,
+      3&nbsp;=&nbsp;<span style="color:#f59e0b">amber</span>,
+      &ge;4&nbsp;=&nbsp;<span style="color:#4ade80">green</span>.
+      &#9873;&nbsp;= qualitative flag present.
+    </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:600px">
+      <thead><tr>
+        <th style="text-align:left;padding:5px 7px;background:#1a2535;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">#</th>
+        <th style="text-align:left;padding:5px 7px;background:#1a2535;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">Cat</th>
+        <th style="text-align:left;padding:5px 7px;background:#1a2535;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">Question</th>
+        {_dim_ths}
+        <th style="text-align:center;padding:5px 5px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848;border-left:2px solid #2e5080">Avg</th>
+      </tr></thead>
+      <tbody>{_rows_html}{_avg_row}</tbody>
+    </table>
+    </div>
+    """)
+
+    # ── Category breakdown ────────────────────────────────────────
+    st.html('<div class="section-label">Category breakdown</div>')
+    _cat_cards = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">'
+    for _cat, _cavg in sorted(_cat_avgs.items(), key=lambda x: x[1]):
+        _cc = "#ff4b4b" if _cavg < 3 else "#ffa500" if _cavg < 4 else "#21c354"
+        _cn = len(_cat_qs[_cat])
+        _cat_cards += f"""
+        <div class="compact-card" style="flex:1;min-width:130px;border-left:3px solid {_cc}">
+          <div class="cc-label">{_cat}</div>
+          <div style="font-size:22px;font-weight:700;color:{_cc}">{_cavg:.1f}<span style="font-size:11px;color:#667788">/5</span></div>
+          <div style="font-size:10px;color:#667788">{_cn} question{"s" if _cn != 1 else ""}</div>
+        </div>"""
+    _cat_cards += "</div>"
+    st.html(_cat_cards)
+
+    # ── Qualitative notes ─────────────────────────────────────────
+    _flagged = [q for q in FLASK_MOCK if q["notes"]]
+    if _flagged:
+        st.html('<div class="section-label">Qualitative feedback — flagged dimensions</div>')
+        for _fq in _flagged:
+            with st.expander(f"{_fq['cat'].upper()} — {_fq['q'][:55]}{'…' if len(_fq['q'])>55 else ''}"):
+                for _fdim, _fnote in _fq["notes"]:
+                    _fc = "#f87171" if _fq["scores"][_fdim] <= 2 else "#f59e0b"
+                    st.html(f"""
+                    <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #1e2a3a;align-items:flex-start">
+                      <div style="font-size:10px;font-weight:700;color:{_fc};min-width:110px;
+                           text-transform:uppercase;padding-top:1px;flex-shrink:0">{_fdim}</div>
+                      <div style="font-size:11px;color:#ccd6e0;line-height:1.5">{_fnote}</div>
+                    </div>
+                    """)
+
+    # ── References ───────────────────────────────────────────────
+    st.html("""
+    <div style="margin-top:14px;padding-top:10px;border-top:1px solid #2a3848">
+      <div style="font-size:11px;font-weight:700;color:#eef2f7;margin-bottom:6px">References</div>
+      <div style="font-size:11px;color:#8899aa;line-height:1.8">
+        [1] Ye, S., Kim, H., Park, S., Yoo, M., Jeong, J., Kim, H., Shin, J., Kim, J., &amp; Kwon, O. (2023).
+        <i>FLASK: Fine-grained Language Model Evaluation based on Alignment Skill Sets.</i>
+        arXiv:2307.10928. Presented at ICLR 2024.
+      </div>
+    </div>
+    """)
+
+    st.stop()
+
 # G-EVAL
 # ══════════════════════════════════════════════════════════════════
 with st.sidebar:
@@ -2562,7 +3074,13 @@ with st.sidebar:
             st.caption(f"**Probe (real, from LLMAuditor):** {case['probe']}")
         else:
             st.caption(f"**Probe:** {SCENARIOS[topic]['probe']}")
-        run2 = st.button("Run audit", type="primary", use_container_width=True)
+        _g2_busy = st.session_state.get("g2_running", False)
+        run2 = st.button(
+            "Running…" if _g2_busy else "Run audit",
+            type="primary",
+            use_container_width=True,
+            disabled=_g2_busy,
+        )
 
     if st.session_state.audit_log:
         log = st.session_state.audit_log
@@ -2586,8 +3104,9 @@ with st.sidebar:
             ''')
 
 if run2:
-    st.session_state.stage       = "running"
-    st.session_state.result      = None
+    st.session_state.g2_running   = True
+    st.session_state.stage        = "running"
+    st.session_state.result       = None
     st.session_state.human_action = None
     pb  = st.progress(0)
     msg = st.empty()
@@ -2601,7 +3120,8 @@ if run2:
         st.session_state.result = {**scenario, "topic": f"Escalated: {case['topic']}"}
     else:
         st.session_state.result = {**SCENARIOS[topic], "topic": topic}
-    st.session_state.stage  = "results"
+    st.session_state.stage      = "results"
+    st.session_state.g2_running = False
     st.rerun()
 
 st.html(CSS + '<div style="font-size:13px;font-weight:700;color:#eef2f7;margin:2px 0 2px 0">ByteDance LLM Audit Suite</div><div class="section-label">LLMAuditor &nbsp;·&nbsp; G-Eval &nbsp;·&nbsp; Human-in-the-loop &nbsp;·&nbsp; Multi-dimensional evaluation</div>')

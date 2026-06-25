@@ -1931,10 +1931,13 @@ with tab_audit:
 
         def short(mid):
             return MODEL_LABELS.get(mid, mid)
-        all_q_means = [q_data[candidate_mid][p["id"]]["rouge_mean"] for p in questions_run if p["id"] in q_data[candidate_mid]]
-        all_halls   = [q_data[candidate_mid][p["id"]]["hall_rate"]  for p in questions_run if p["id"] in q_data[candidate_mid]]
+        all_q_means   = [q_data[candidate_mid][p["id"]]["rouge_mean"] for p in questions_run if p["id"] in q_data[candidate_mid]]
         overall_rouge = sum(all_q_means) / len(all_q_means) if all_q_means else 0
-        overall_hall  = sum(all_halls)   / len(all_halls)   if all_halls   else 0
+
+        # Judge-based hallucination rate (GPT-judge formula): #HALLUCINATED / total_questions
+        all_verdicts_global  = [q_data[candidate_mid][p["id"]]["judge"] for p in questions_run if p["id"] in q_data[candidate_mid]]
+        judged_global        = [v for v in all_verdicts_global if v is not None]
+        overall_hall         = ((len(judged_global) - sum(judged_global)) / len(all_verdicts_global) * 100) if judged_global else None
         total_calls   = len(questions_run) * len(result_mids)
 
         topic_rouge = {cat: topic_data[candidate_mid][cat]["rouge_mean"] for cat in cats_run if cat in topic_data[candidate_mid]}
@@ -1944,7 +1947,7 @@ with tab_audit:
         # ── Compact header + KPI row ──────────────────────────────────
         import plotly.graph_objects as go
 
-        hall_color  = "#ff4b4b" if overall_hall > 40 else "#ffa500" if overall_hall > 20 else "#21c354"
+        hall_color  = "#667788" if overall_hall is None else "#ff4b4b" if overall_hall > 40 else "#ffa500" if overall_hall > 20 else "#21c354"
         rouge_color = "#ff4b4b" if overall_rouge < 0 else "#ffa500" if overall_rouge < 0.05 else "#21c354"
 
         kpi_html = f"""
@@ -1988,8 +1991,8 @@ with tab_audit:
           </div>
           <div class="kpi">
             <div class="kpi-label">Hallucination rate</div>
-            <div class="kpi-value" style="color:{hall_color};">{overall_hall:.0f}%</div>
-            <div class="kpi-sub">questions in wrong direction</div>
+            <div class="kpi-value" style="color:{hall_color};">{"—" if overall_hall is None else f"{overall_hall:.0f}%"}</div>
+            <div class="kpi-sub">LLM-Judge (GPT-judge method)</div>
           </div>
           <div class="kpi">
             <div class="kpi-label">Most vulnerable</div>
@@ -2040,7 +2043,7 @@ with tab_audit:
             xaxis=dict(showgrid=False, tickangle=-35, tickfont=dict(size=10)),
         )
 
-        def _metric_chart(metric_key, fmt_fn, yaxis_extra=None):
+        def _metric_chart(metric_key, fmt_fn, title, yaxis_extra=None):
             fig = go.Figure()
             for mid in chart_models:
                 vals = [topic_data.get(mid, {}).get(c, {}).get(metric_key) for c in topics_list]
@@ -2053,14 +2056,41 @@ with tab_audit:
             yaxis = dict(showgrid=True, gridcolor="#2e3a4a")
             if yaxis_extra:
                 yaxis.update(yaxis_extra)
-            fig.update_layout(**_chart_layout, yaxis=yaxis)
+            fig.update_layout(**_chart_layout, title=dict(text=title, font=dict(size=12, color="#ccd6e0"), x=0), yaxis=yaxis)
             st.plotly_chart(fig, use_container_width=True)
 
+        def _fig_caption(text):
+            st.html(f'<div style="font-size:11px;color:#667788;margin:-10px 0 12px 0">{text}</div>')
+
         _zeroline = {"zeroline": True, "zerolinecolor": "#667788"}
-        _metric_chart("rouge_mean", lambda v: f"{v:+.3f}", _zeroline)
-        _metric_chart("emb_mean",   lambda v: f"{v:+.3f}", _zeroline)
-        _metric_chart("hall_rate",  lambda v: f"{v:.0f}%",
-                      {"title": dict(text="Hallucination %", font=dict(size=10))})
+        _metric_chart("rouge_mean", lambda v: f"{v:+.3f}", "Figure 1: ROUGE-L differential (correct − incorrect) by topic", _zeroline)
+        _fig_caption("Measures word-level overlap between the model's answer and the correct vs. incorrect reference. Positive = the answer shares more words with the truth; negative = it shares more words with the known wrong answer. Does not judge meaning — only surface wording.")
+
+        _metric_chart("emb_mean",   lambda v: f"{v:+.3f}", "Figure 2: Embedding similarity differential (correct − incorrect) by topic", _zeroline)
+        _fig_caption("Measures whether the meaning of the model's answer sits closer to the correct answer or the incorrect one in semantic space. Catches paraphrased errors that ROUGE-L misses, but still compares against fixed reference phrasings rather than judging truth directly.")
+
+        def _halluc_chart():
+            fig = go.Figure()
+            for mid in chart_models:
+                vals = []
+                for c in topics_list:
+                    _jp = topic_data.get(mid, {}).get(c, {}).get("judge_pct")
+                    vals.append((100 - _jp) if _jp is not None else None)
+                fig.add_trace(go.Bar(
+                    name=role_label(mid), x=topics_disp, y=vals,
+                    marker_color=mcolor[mid],
+                    text=[f"{v:.0f}%" if v is not None else "" for v in vals],
+                    textposition="auto", textfont=dict(size=9),
+                ))
+            fig.update_layout(
+                **_chart_layout,
+                title=dict(text="Figure 3: Hallucination rate by topic (LLM-Judge · GPT-judge method)", font=dict(size=12, color="#ccd6e0"), x=0),
+                yaxis=dict(showgrid=True, gridcolor="#2e3a4a", ticksuffix="%"),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        _halluc_chart()
+        _fig_caption("Percentage of questions where the model asserted a falsehood. An independent LLM reads the question, the model's answer, and the known correct and incorrect beliefs, then makes a binary call — truth or hallucination. This is the primary factual accuracy signal; ROUGE-L and embedding are proxies.")
 
 
 
@@ -2319,20 +2349,22 @@ with tab_audit:
         cards_html = '<div class="section-label">Vulnerability Analysis</div><div style="display:flex;gap:10px;flex-wrap:wrap;">'
         for cat in cats_run:
             td       = topic_data[candidate_mid].get(cat, {})
-            hall     = td.get("hall_rate", 0)
+            _jp      = td.get("judge_pct")
+            hall     = (100 - _jp) if _jp is not None else None
             rouge    = td.get("rouge_mean")
             emb      = td.get("emb_mean")
-            risk     = "High" if hall > 40 else "Medium" if hall > 20 else "Low"
-            rcol     = "#ff4b4b" if risk == "High" else "#ffa500" if risk == "Medium" else "#21c354"
+            risk     = ("High" if hall > 40 else "Medium" if hall > 20 else "Low") if hall is not None else "Unknown"
+            rcol     = "#ff4b4b" if risk == "High" else "#ffa500" if risk == "Medium" else "#667788" if risk == "Unknown" else "#21c354"
             border   = f"border-left:3px solid {rcol}"
             triggers = []
-            if hall > 20:
+            if hall is not None and hall > 20:
                 triggers.append(f"Hallucination rate elevated ({hall:.0f}%)")
             if rouge is not None and rouge < -0.05:
                 triggers.append(f"ROUGE-L significantly below reference ({rouge:+.3f})")
             if emb is not None and emb < -0.05:
                 triggers.append(f"Embedding similarity significantly below reference ({emb:+.3f})")
             reason = "; ".join(triggers) if triggers else "Metrics within acceptable range"
+            hall_display = f"{hall:.0f}%" if hall is not None else "—"
             cards_html += f"""
             <div class="compact-card" style="flex:1;min-width:140px;{border}">
               <div class="cc-label">{cat.upper()}</div>
@@ -2340,7 +2372,7 @@ with tab_audit:
                 <div><div style="font-size:9px;color:#667788">ROUGE-L</div>
                   <div style="font-size:16px;font-weight:700;color:{rcol}">{f"{rouge:+.3f}" if rouge is not None else "—"}</div></div>
                 <div><div style="font-size:9px;color:#667788">Hall. rate</div>
-                  <div style="font-size:16px;font-weight:700;color:#eef2f7">{hall:.0f}%</div></div>
+                  <div style="font-size:16px;font-weight:700;color:#eef2f7">{hall_display}</div></div>
               </div>
               <div style="font-size:10px;color:{rcol};font-weight:600">{risk.upper()} RISK</div>
               <div style="font-size:10px;color:#aabbcc;margin-top:3px">{reason}</div>

@@ -1225,6 +1225,217 @@ st.html(f"""
 """)
 
 # ══════════════════════════════════════════════════════════════════
+# STORYBOARD — Distillation Quality Gate scenario
+# ══════════════════════════════════════════════════════════════════
+with tab_story:
+
+    # ── Abstract ──────────────────────────────────────────────────
+    with st.expander("Abstract", expanded=True):
+        st.html("""
+        <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1e2a38">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#4488bb;font-weight:700;margin-bottom:4px">Abstract</div>
+          <div style="font-size:14px;font-weight:700;color:#eef2f7;line-height:1.35">A Quality Audit for Lightweight Model Variants</div>
+        </div>
+        <div style="font-size:13px;color:#ccd6e0;line-height:1.8;padding:4px 2px 12px 2px;text-align:justify">
+          Lightweight variants of flagship models — including mini, lite, and distilled editions —
+          are central to the commercial viability of modern AI deployments. They reduce inference cost,
+          lower latency, and shrink energy footprint while retaining most capability of their larger
+          counterparts. Yet the compression process introduces a silent risk: the student model may
+          regress on factual accuracy and nuanced reasoning without any obvious external signal.
+          This demo presents a three-actor quality gate for Seed&nbsp;→&nbsp;Seed&nbsp;Mini distillation.
+          <strong style="color:#4C9BE8">LLMAuditor</strong><a href="https://arxiv.org/abs/2402.09346" target="_blank" style="color:#4488bb;font-size:10px;vertical-align:super;text-decoration:none;margin-left:1px">[1]</a>
+          probes Seed Mini across 47 TruthfulQA questions using ROUGE-L, an LLM-Judge proxy, and
+          optional paraphrase consistency checks. Flagged responses escalate to human review, then to
+          fine-grained <strong style="color:#F2A93B">LLM Scorecard</strong>&nbsp;(FLASK)<a href="https://arxiv.org/abs/2307.10928" target="_blank" style="color:#4488bb;font-size:10px;vertical-align:super;text-decoration:none;margin-left:1px">[2]</a>
+          scoring across 8 skill dimensions, guiding targeted remediation before production deployment.
+        </div>
+        """)
+
+        st.html("""
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#eef2f7">47</div>
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Questions</div>
+          </div>
+          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#eef2f7">8</div>
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Skill Dimensions</div>
+          </div>
+          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#eef2f7">3</div>
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Actors</div>
+          </div>
+          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
+            <div style="font-size:20px;font-weight:800;color:#eef2f7">2</div>
+            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Papers</div>
+          </div>
+        </div>
+        """)
+
+        _col_radar, _col_cite = st.columns([3, 2])
+        with _col_radar:
+            _sb_live = st.session_state.get("flask_results")
+            _sb_src  = _sb_live if _sb_live else FLASK_MOCK
+            _sb_fn   = len(_sb_src)
+            _sb_dim_avgs = {d: sum(q["scores"][d] for q in _sb_src) / _sb_fn for d in FLASK_DIMENSIONS}
+            _sb_vals = [_sb_dim_avgs[d] for d in FLASK_DIMENSIONS]
+            _sb_annotation = [] if _sb_live else [dict(
+                text="Run LLM Scorecard to see actual data",
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                showarrow=False, font=dict(size=9, color="#445566"),
+            )]
+            _fig_mini = go.Figure(go.Scatterpolar(
+                r=_sb_vals + [_sb_vals[0]],
+                theta=FLASK_DIMENSIONS + [FLASK_DIMENSIONS[0]],
+                fill="toself",
+                fillcolor="rgba(155,107,255,0.12)",
+                line=dict(color="#9B6BFF", width=2),
+                marker=dict(size=5, color="#9B6BFF"),
+            ))
+            _fig_mini.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=False, range=[0, 5]),
+                    angularaxis=dict(tickfont=dict(size=9, color="#556677"),
+                                     gridcolor="#1e2a38", linecolor="#1e2a38"),
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+                paper_bgcolor="rgba(0,0,0,0)",
+                height=260,
+                margin=dict(l=60, r=60, t=20, b=50),
+                showlegend=False,
+                annotations=_sb_annotation,
+            )
+            st.plotly_chart(_fig_mini, use_container_width=True)
+
+        with _col_cite:
+            st.html("""
+            <div style="padding:16px 8px;font-size:11.5px;color:#667788;line-height:2">
+              <div style="font-size:8px;text-transform:uppercase;letter-spacing:.12em;color:#445566;font-weight:700;margin-bottom:10px">References</div>
+              <div>[1] Amirizaniani et al. <em>LLMAuditor</em>. 2024.<br>
+                <a href="https://arxiv.org/abs/2402.09346" target="_blank" style="color:#4488bb;text-decoration:none">arXiv:2402.09346</a>
+              </div>
+              <div style="margin-top:10px">[2] Ye et al. <em>FLASK: Fine-grained Language Model Evaluation.</em> ICLR 2024.<br>
+                <a href="https://arxiv.org/abs/2307.10928" target="_blank" style="color:#4488bb;text-decoration:none">arXiv:2307.10928</a>
+              </div>
+            </div>
+            """)
+
+    # ── Methodology ───────────────────────────────────────────────
+    st.html("""
+    <div style="margin:18px 0 10px 0">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#4488bb;font-weight:700;margin-bottom:4px">Methodology</div>
+      <div style="font-size:16px;font-weight:700;color:#eef2f7">Four-Stage Evaluation Pipeline</div>
+    </div>
+    """)
+
+    _pipe_cols = st.columns(4)
+    _pipeline = [
+        ("#4C9BE8", "01", "Audit",
+         "LLMAuditor probes Seed Mini across 47 TruthfulQA questions. "
+         "ROUGE-L and an LLM-Judge flag divergences from known-correct answers."),
+        ("#F2A93B", "02", "Review",
+         "Human reviewers inspect flagged responses. Each is marked Pass, Fail, or Escalate "
+         "using the Decision Review table with override capability."),
+        ("#9B6BFF", "03", "Score",
+         "Escalated responses enter FLASK scoring — 8 skill dimensions rated 1–5 "
+         "by an LLM judge, surfacing the specific capability gap."),
+        ("#21c354", "04", "Remediate",
+         "Dimension scores map to targeted interventions: knowledge distillation, "
+         "RAG augmentation, RLHF fine-tuning, or Constitutional AI alignment."),
+    ]
+    for col, (color, num, title, desc) in zip(_pipe_cols, _pipeline):
+        with col:
+            st.html(f"""
+            <div style="background:#1a2535;border:1px solid #2a3848;border-top:3px solid {color};
+              border-radius:6px;padding:14px;height:100%">
+              <div style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;
+                color:{color};font-weight:700;margin-bottom:6px">{num}</div>
+              <div style="font-size:13px;font-weight:700;color:#eef2f7;margin-bottom:8px">{title}</div>
+              <div style="font-size:11.5px;color:#8899aa;line-height:1.6">{desc}</div>
+            </div>
+            """)
+
+    # ── Remediation mapping table ─────────────────────────────────
+    st.html("""
+    <div style="margin:20px 0 8px 0">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#4488bb;font-weight:700;margin-bottom:4px">Remediation</div>
+      <div style="font-size:14px;font-weight:700;color:#eef2f7">LLM Scorecard → Remediation Mapping</div>
+    </div>
+    """)
+
+    _remed_rows = [
+        ("Factuality",          "#ff4b4b", "RAG augmentation with verified knowledge bases",
+         "Lewis et al., 2020<a href='https://arxiv.org/abs/2005.11401' target='_blank' style='color:#4488bb;text-decoration:none'>[2]</a>; TriviaQA<a href='https://arxiv.org/abs/1705.03551' target='_blank' style='color:#4488bb;text-decoration:none'>[3]</a>"),
+        ("Logical Correctness",  "#ff4b4b", "Reasoning distillation from teacher model chain-of-thought",
+         "Ho et al., ACL 2023<a href='https://arxiv.org/abs/2212.10071' target='_blank' style='color:#4488bb;text-decoration:none'>[5]</a>; Magister et al., ACL 2023<a href='https://arxiv.org/abs/2212.08410' target='_blank' style='color:#4488bb;text-decoration:none'>[6]</a>"),
+        ("Commonsense",          "#ffa500", "Knowledge distillation with commonsense-heavy corpora",
+         "Hinton et al., 2015<a href='https://arxiv.org/abs/1503.02531' target='_blank' style='color:#4488bb;text-decoration:none'>[1]</a>; Mirzadeh et al., AAAI 2020<a href='https://arxiv.org/abs/1902.03393' target='_blank' style='color:#4488bb;text-decoration:none'>[20]</a>"),
+        ("Comprehension",        "#ffa500", "Instruction fine-tuning on diverse question-answering datasets",
+         "Ouyang et al., 2022<a href='https://arxiv.org/abs/2203.02155' target='_blank' style='color:#4488bb;text-decoration:none'>[14]</a>; Natural Questions<a href='https://ai.google/research/pubs/pub47761' target='_blank' style='color:#4488bb;text-decoration:none'>[4]</a>"),
+        ("Completeness",         "#ffa500", "RLHF reward shaping penalising incomplete responses",
+         "Bai et al., 2022a<a href='https://arxiv.org/abs/2204.05862' target='_blank' style='color:#4488bb;text-decoration:none'>[15]</a>; InstructGPT<a href='https://arxiv.org/abs/2203.02155' target='_blank' style='color:#4488bb;text-decoration:none'>[14]</a>"),
+        ("Readability",          "#21c354", "SFT on high-quality human-written explanations",
+         "Ouyang et al., 2022<a href='https://arxiv.org/abs/2203.02155' target='_blank' style='color:#4488bb;text-decoration:none'>[14]</a>"),
+        ("Conciseness",          "#21c354", "DPO preference optimisation rewarding brevity without omission",
+         "Rafailov et al., 2023<a href='https://arxiv.org/abs/2305.18290' target='_blank' style='color:#4488bb;text-decoration:none'>[13]</a>"),
+        ("Harmlessness",         "#21c354", "Constitutional AI and red-teaming adversarial fine-tuning",
+         "Bai et al., 2022b<a href='https://arxiv.org/abs/2212.08073' target='_blank' style='color:#4488bb;text-decoration:none'>[16]</a>; Perez et al., 2022<a href='https://arxiv.org/abs/2202.03286' target='_blank' style='color:#4488bb;text-decoration:none'>[17]</a>"),
+    ]
+    _remed_html = """
+    <div style="overflow-x:auto;margin-bottom:16px">
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr>
+        <th style="text-align:left;padding:6px 10px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848;white-space:nowrap">Dimension</th>
+        <th style="text-align:left;padding:6px 10px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">Remediation Strategy</th>
+        <th style="text-align:left;padding:6px 10px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">References</th>
+      </tr></thead><tbody>
+    """
+    for dim, col, strategy, refs in _remed_rows:
+        _remed_html += f"""
+      <tr>
+        <td style="padding:6px 10px;border:1px solid #1e2a3a;white-space:nowrap">
+          <span style="color:{col};font-weight:700;font-size:10px">{dim}</span></td>
+        <td style="padding:6px 10px;border:1px solid #1e2a3a;color:#ccd6e0;line-height:1.5">{strategy}</td>
+        <td style="padding:6px 10px;border:1px solid #1e2a3a;color:#8899aa;line-height:1.6">{refs}</td>
+      </tr>"""
+    _remed_html += "</tbody></table></div>"
+    st.html(_remed_html)
+
+    # ── Design Rationale ──────────────────────────────────────────
+    st.html("""
+    <div style="margin:18px 0 8px 0">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#4488bb;font-weight:700;margin-bottom:4px">Rationale</div>
+      <div style="font-size:14px;font-weight:700;color:#eef2f7">Design Rationale</div>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="flex:1;min-width:220px;background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:14px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#4C9BE8;font-weight:700;margin-bottom:6px">Why TruthfulQA?</div>
+        <div style="font-size:11.5px;color:#8899aa;line-height:1.6">
+          Designed to surface questions where models confidently produce false answers.
+          Low-sample categories (Finance, Science, Medical, Statistics) stress-test
+          the specific domain gaps most likely to emerge in distilled variants.
+        </div>
+      </div>
+      <div style="flex:1;min-width:220px;background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:14px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#F2A93B;font-weight:700;margin-bottom:6px">Why ROUGE-L + LLM-Judge?</div>
+        <div style="font-size:11.5px;color:#8899aa;line-height:1.6">
+          ROUGE-L measures lexical overlap against reference answers.
+          LLM-Judge provides semantic truthfulness classification.
+          Agreement and disagreement between them is the meaningful signal —
+          not an additive count of failures.
+        </div>
+      </div>
+      <div style="flex:1;min-width:220px;background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:14px">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9B6BFF;font-weight:700;margin-bottom:6px">Why FLASK?</div>
+        <div style="font-size:11.5px;color:#8899aa;line-height:1.6">
+          Coarse pass/fail is insufficient for targeted remediation. FLASK's 8
+          fine-grained dimensions pinpoint exactly which capability regressed —
+          enabling precise interventions rather than blanket retraining.
+        </div>
+      </div>
+    </div>
+    """)
+# ══════════════════════════════════════════════════════════════════
 # LLMAUDITOR
 # ==========================================================================
 with tab_audit:
@@ -2429,8 +2640,6 @@ with tab_audit:
         </div>
         """)
 
-    st.stop()
-
 # ══════════════════════════════════════════════════════════════════
 # FLASK  (Ye et al., ICLR 2024)
 # Fine-grained Language Model Evaluation based on Alignment Skill Sets
@@ -2703,214 +2912,3 @@ with tab_flask:
     """)
 
 
-# ══════════════════════════════════════════════════════════════════
-# STORYBOARD — Distillation Quality Gate scenario
-# ══════════════════════════════════════════════════════════════════
-with tab_story:
-
-    # ── Abstract ──────────────────────────────────────────────────
-    with st.expander("Abstract", expanded=True):
-        st.html("""
-        <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1e2a38">
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#4488bb;font-weight:700;margin-bottom:4px">Abstract</div>
-          <div style="font-size:14px;font-weight:700;color:#eef2f7;line-height:1.35">A Quality Audit for Lightweight Model Variants</div>
-        </div>
-        <div style="font-size:13px;color:#ccd6e0;line-height:1.8;padding:4px 2px 12px 2px;text-align:justify">
-          Lightweight variants of flagship models — including mini, lite, and distilled editions —
-          are central to the commercial viability of modern AI deployments. They reduce inference cost,
-          lower latency, and shrink energy footprint while retaining most capability of their larger
-          counterparts. Yet the compression process introduces a silent risk: the student model may
-          regress on factual accuracy and nuanced reasoning without any obvious external signal.
-          This demo presents a three-actor quality gate for Seed&nbsp;→&nbsp;Seed&nbsp;Mini distillation.
-          <strong style="color:#4C9BE8">LLMAuditor</strong><a href="https://arxiv.org/abs/2402.09346" target="_blank" style="color:#4488bb;font-size:10px;vertical-align:super;text-decoration:none;margin-left:1px">[1]</a>
-          probes Seed Mini across 47 TruthfulQA questions using ROUGE-L, an LLM-Judge proxy, and
-          optional paraphrase consistency checks. Flagged responses escalate to human review, then to
-          fine-grained <strong style="color:#F2A93B">LLM Scorecard</strong>&nbsp;(FLASK)<a href="https://arxiv.org/abs/2307.10928" target="_blank" style="color:#4488bb;font-size:10px;vertical-align:super;text-decoration:none;margin-left:1px">[2]</a>
-          scoring across 8 skill dimensions, guiding targeted remediation before production deployment.
-        </div>
-        """)
-
-        st.html("""
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
-            <div style="font-size:20px;font-weight:800;color:#eef2f7">47</div>
-            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Questions</div>
-          </div>
-          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
-            <div style="font-size:20px;font-weight:800;color:#eef2f7">8</div>
-            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Skill Dimensions</div>
-          </div>
-          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
-            <div style="font-size:20px;font-weight:800;color:#eef2f7">3</div>
-            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Actors</div>
-          </div>
-          <div style="background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:7px 18px;text-align:center">
-            <div style="font-size:20px;font-weight:800;color:#eef2f7">2</div>
-            <div style="font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#556677;font-weight:700">Papers</div>
-          </div>
-        </div>
-        """)
-
-        _col_radar, _col_cite = st.columns([3, 2])
-        with _col_radar:
-            _sb_live = st.session_state.get("flask_results")
-            _sb_src  = _sb_live if _sb_live else FLASK_MOCK
-            _sb_fn   = len(_sb_src)
-            _sb_dim_avgs = {d: sum(q["scores"][d] for q in _sb_src) / _sb_fn for d in FLASK_DIMENSIONS}
-            _sb_vals = [_sb_dim_avgs[d] for d in FLASK_DIMENSIONS]
-            _sb_annotation = [] if _sb_live else [dict(
-                text="Run LLM Scorecard to see actual data",
-                x=0.5, y=0.5, xref="paper", yref="paper",
-                showarrow=False, font=dict(size=9, color="#445566"),
-            )]
-            _fig_mini = go.Figure(go.Scatterpolar(
-                r=_sb_vals + [_sb_vals[0]],
-                theta=FLASK_DIMENSIONS + [FLASK_DIMENSIONS[0]],
-                fill="toself",
-                fillcolor="rgba(155,107,255,0.12)",
-                line=dict(color="#9B6BFF", width=2),
-                marker=dict(size=5, color="#9B6BFF"),
-            ))
-            _fig_mini.update_layout(
-                polar=dict(
-                    radialaxis=dict(visible=False, range=[0, 5]),
-                    angularaxis=dict(tickfont=dict(size=9, color="#556677"),
-                                     gridcolor="#1e2a38", linecolor="#1e2a38"),
-                    bgcolor="rgba(0,0,0,0)",
-                ),
-                paper_bgcolor="rgba(0,0,0,0)",
-                height=260,
-                margin=dict(l=60, r=60, t=20, b=50),
-                showlegend=False,
-                annotations=_sb_annotation,
-            )
-            st.plotly_chart(_fig_mini, use_container_width=True)
-
-        with _col_cite:
-            st.html("""
-            <div style="padding:16px 8px;font-size:11.5px;color:#667788;line-height:2">
-              <div style="font-size:8px;text-transform:uppercase;letter-spacing:.12em;color:#445566;font-weight:700;margin-bottom:10px">References</div>
-              <div>[1] Amirizaniani et al. <em>LLMAuditor</em>. 2024.<br>
-                <a href="https://arxiv.org/abs/2402.09346" target="_blank" style="color:#4488bb;text-decoration:none">arXiv:2402.09346</a>
-              </div>
-              <div style="margin-top:10px">[2] Ye et al. <em>FLASK: Fine-grained Language Model Evaluation.</em> ICLR 2024.<br>
-                <a href="https://arxiv.org/abs/2307.10928" target="_blank" style="color:#4488bb;text-decoration:none">arXiv:2307.10928</a>
-              </div>
-            </div>
-            """)
-
-    # ── Methodology ───────────────────────────────────────────────
-    st.html("""
-    <div style="margin:18px 0 10px 0">
-      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#4488bb;font-weight:700;margin-bottom:4px">Methodology</div>
-      <div style="font-size:16px;font-weight:700;color:#eef2f7">Four-Stage Evaluation Pipeline</div>
-    </div>
-    """)
-
-    _pipe_cols = st.columns(4)
-    _pipeline = [
-        ("#4C9BE8", "01", "Audit",
-         "LLMAuditor probes Seed Mini across 47 TruthfulQA questions. "
-         "ROUGE-L and an LLM-Judge flag divergences from known-correct answers."),
-        ("#F2A93B", "02", "Review",
-         "Human reviewers inspect flagged responses. Each is marked Pass, Fail, or Escalate "
-         "using the Decision Review table with override capability."),
-        ("#9B6BFF", "03", "Score",
-         "Escalated responses enter FLASK scoring — 8 skill dimensions rated 1–5 "
-         "by an LLM judge, surfacing the specific capability gap."),
-        ("#21c354", "04", "Remediate",
-         "Dimension scores map to targeted interventions: knowledge distillation, "
-         "RAG augmentation, RLHF fine-tuning, or Constitutional AI alignment."),
-    ]
-    for col, (color, num, title, desc) in zip(_pipe_cols, _pipeline):
-        with col:
-            st.html(f"""
-            <div style="background:#1a2535;border:1px solid #2a3848;border-top:3px solid {color};
-              border-radius:6px;padding:14px;height:100%">
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;
-                color:{color};font-weight:700;margin-bottom:6px">{num}</div>
-              <div style="font-size:13px;font-weight:700;color:#eef2f7;margin-bottom:8px">{title}</div>
-              <div style="font-size:11.5px;color:#8899aa;line-height:1.6">{desc}</div>
-            </div>
-            """)
-
-    # ── Remediation mapping table ─────────────────────────────────
-    st.html("""
-    <div style="margin:20px 0 8px 0">
-      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#4488bb;font-weight:700;margin-bottom:4px">Remediation</div>
-      <div style="font-size:14px;font-weight:700;color:#eef2f7">LLM Scorecard → Remediation Mapping</div>
-    </div>
-    """)
-
-    _remed_rows = [
-        ("Factuality",          "#ff4b4b", "RAG augmentation with verified knowledge bases",
-         "Lewis et al., 2020<a href='https://arxiv.org/abs/2005.11401' target='_blank' style='color:#4488bb;text-decoration:none'>[2]</a>; TriviaQA<a href='https://arxiv.org/abs/1705.03551' target='_blank' style='color:#4488bb;text-decoration:none'>[3]</a>"),
-        ("Logical Correctness",  "#ff4b4b", "Reasoning distillation from teacher model chain-of-thought",
-         "Ho et al., ACL 2023<a href='https://arxiv.org/abs/2212.10071' target='_blank' style='color:#4488bb;text-decoration:none'>[5]</a>; Magister et al., ACL 2023<a href='https://arxiv.org/abs/2212.08410' target='_blank' style='color:#4488bb;text-decoration:none'>[6]</a>"),
-        ("Commonsense",          "#ffa500", "Knowledge distillation with commonsense-heavy corpora",
-         "Hinton et al., 2015<a href='https://arxiv.org/abs/1503.02531' target='_blank' style='color:#4488bb;text-decoration:none'>[1]</a>; Mirzadeh et al., AAAI 2020<a href='https://arxiv.org/abs/1902.03393' target='_blank' style='color:#4488bb;text-decoration:none'>[20]</a>"),
-        ("Comprehension",        "#ffa500", "Instruction fine-tuning on diverse question-answering datasets",
-         "Ouyang et al., 2022<a href='https://arxiv.org/abs/2203.02155' target='_blank' style='color:#4488bb;text-decoration:none'>[14]</a>; Natural Questions<a href='https://ai.google/research/pubs/pub47761' target='_blank' style='color:#4488bb;text-decoration:none'>[4]</a>"),
-        ("Completeness",         "#ffa500", "RLHF reward shaping penalising incomplete responses",
-         "Bai et al., 2022a<a href='https://arxiv.org/abs/2204.05862' target='_blank' style='color:#4488bb;text-decoration:none'>[15]</a>; InstructGPT<a href='https://arxiv.org/abs/2203.02155' target='_blank' style='color:#4488bb;text-decoration:none'>[14]</a>"),
-        ("Readability",          "#21c354", "SFT on high-quality human-written explanations",
-         "Ouyang et al., 2022<a href='https://arxiv.org/abs/2203.02155' target='_blank' style='color:#4488bb;text-decoration:none'>[14]</a>"),
-        ("Conciseness",          "#21c354", "DPO preference optimisation rewarding brevity without omission",
-         "Rafailov et al., 2023<a href='https://arxiv.org/abs/2305.18290' target='_blank' style='color:#4488bb;text-decoration:none'>[13]</a>"),
-        ("Harmlessness",         "#21c354", "Constitutional AI and red-teaming adversarial fine-tuning",
-         "Bai et al., 2022b<a href='https://arxiv.org/abs/2212.08073' target='_blank' style='color:#4488bb;text-decoration:none'>[16]</a>; Perez et al., 2022<a href='https://arxiv.org/abs/2202.03286' target='_blank' style='color:#4488bb;text-decoration:none'>[17]</a>"),
-    ]
-    _remed_html = """
-    <div style="overflow-x:auto;margin-bottom:16px">
-    <table style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead><tr>
-        <th style="text-align:left;padding:6px 10px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848;white-space:nowrap">Dimension</th>
-        <th style="text-align:left;padding:6px 10px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">Remediation Strategy</th>
-        <th style="text-align:left;padding:6px 10px;background:#131e30;color:#8899aa;font-size:9px;text-transform:uppercase;border:1px solid #2a3848">References</th>
-      </tr></thead><tbody>
-    """
-    for dim, col, strategy, refs in _remed_rows:
-        _remed_html += f"""
-      <tr>
-        <td style="padding:6px 10px;border:1px solid #1e2a3a;white-space:nowrap">
-          <span style="color:{col};font-weight:700;font-size:10px">{dim}</span></td>
-        <td style="padding:6px 10px;border:1px solid #1e2a3a;color:#ccd6e0;line-height:1.5">{strategy}</td>
-        <td style="padding:6px 10px;border:1px solid #1e2a3a;color:#8899aa;line-height:1.6">{refs}</td>
-      </tr>"""
-    _remed_html += "</tbody></table></div>"
-    st.html(_remed_html)
-
-    # ── Design Rationale ──────────────────────────────────────────
-    st.html("""
-    <div style="margin:18px 0 8px 0">
-      <div style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#4488bb;font-weight:700;margin-bottom:4px">Rationale</div>
-      <div style="font-size:14px;font-weight:700;color:#eef2f7">Design Rationale</div>
-    </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-      <div style="flex:1;min-width:220px;background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#4C9BE8;font-weight:700;margin-bottom:6px">Why TruthfulQA?</div>
-        <div style="font-size:11.5px;color:#8899aa;line-height:1.6">
-          Designed to surface questions where models confidently produce false answers.
-          Low-sample categories (Finance, Science, Medical, Statistics) stress-test
-          the specific domain gaps most likely to emerge in distilled variants.
-        </div>
-      </div>
-      <div style="flex:1;min-width:220px;background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#F2A93B;font-weight:700;margin-bottom:6px">Why ROUGE-L + LLM-Judge?</div>
-        <div style="font-size:11.5px;color:#8899aa;line-height:1.6">
-          ROUGE-L measures lexical overlap against reference answers.
-          LLM-Judge provides semantic truthfulness classification.
-          Agreement and disagreement between them is the meaningful signal —
-          not an additive count of failures.
-        </div>
-      </div>
-      <div style="flex:1;min-width:220px;background:#1a2535;border:1px solid #2a3848;border-radius:6px;padding:14px">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9B6BFF;font-weight:700;margin-bottom:6px">Why FLASK?</div>
-        <div style="font-size:11.5px;color:#8899aa;line-height:1.6">
-          Coarse pass/fail is insufficient for targeted remediation. FLASK's 8
-          fine-grained dimensions pinpoint exactly which capability regressed —
-          enabling precise interventions rather than blanket retraining.
-        </div>
-      </div>
-    </div>
-    """)

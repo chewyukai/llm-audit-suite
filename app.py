@@ -864,11 +864,12 @@ def cosine(a: List[float], b: List[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 def emb_diff(client: Ark, candidate: str, correct: str, incorrect: str):
-    """Returns float diff, or None if embedding endpoint unavailable."""
     try:
         ce, coe, ine = embed(client, [candidate, correct, incorrect])
         return cosine(ce, coe) - cosine(ce, ine)
-    except Exception:
+    except Exception as _e:
+        import sys
+        print(f"[emb_diff] embedding failed: {_e}", file=sys.stderr)
         return None
 
 # ── Candidate-vs-reference statistics ──────────────────────────────
@@ -1828,7 +1829,7 @@ with tab_audit:
             for qid, r in q_dict.items():
                 q_data[mid][qid] = {
                     "rouge_mean": r["rouge"],
-                    "emb_mean":   r["emb"],
+                    "emb_mean":   r.get("emb"),
                     "hall_rate":  100.0 if r["rouge"] < 0 else 0.0,
                     "answer":     r["answer"],
                     "judge":      r.get("judge"),  # .get(): stale pre-judge results lack this key
@@ -2454,7 +2455,7 @@ with tab_audit:
                       {_reasoning_html}
                     </div>""")
                     _click_rules.append(
-                        f'[class*="override_zone"]:has(.row-radio-{i}:checked) .panel-row-{i}{{display:block !important}}\n'
+                        f'[class*="override_zone"]:not(:has(.row-trig:hover)):has(.row-radio-{i}:checked) .panel-row-{i}{{display:block !important}}\n'
                         f'[class*="override_zone"] [data-testid="stHorizontalBlock"]:has(.row-radio-{i}:checked)'
                         f'{{background:rgba(99,102,241,.10) !important;border-left:2px solid #6366f1}}'
                     )

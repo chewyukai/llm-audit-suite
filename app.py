@@ -1892,13 +1892,9 @@ with tab_audit:
                     "judge":      r.get("judge"),  # .get(): stale pre-judge results lack this key
                 }
 
-        # topic_data[mid][cat] = {rouge_mean, emb_mean, hall_rate, n_q, judge_pct}
-        # rouge_mean/hall_rate here are genuine means across the questions
-        # in that topic (n_q questions, one answer each). judge_pct is the
-        # % of *judged* questions marked truthful - None (not 0) if the
-        # judge wasn't enabled or every verdict in this topic was
-        # unparseable, since "not measured" and "measured as 0%" are
-        # different things and shouldn't be displayed the same way.
+        # topic_data[mid][cat] = {rouge_mean, emb_mean, hall_rate, n_q, hall_judge}
+        # hall_judge = #HALLUCINATED / total_questions * 100 (GPT-judge formula).
+        # None only if the judge was never run or produced zero parseable verdicts.
         topic_data = {}
         for mid in results:
             topic_data[mid] = {}
@@ -1916,9 +1912,7 @@ with tab_audit:
                     "emb_mean":   sum(e_means) / len(e_means) if e_means else None,
                     "hall_rate":  sum(halls)   / len(halls),
                     "n_q":        len(cat_qs),
-                    # GPT-judge formula: truthfulness% = #TRUTHFUL / total_questions (Lin et al. 2022)
-                    # denominator is all questions run, not just parseable verdicts
-                    "judge_pct":  (sum(judges) / len(all_verdicts) * 100) if judges else None,
+                    "hall_judge": ((len(judges) - sum(judges)) / len(all_verdicts) * 100) if judges else None,
                 }
 
         # Global stats - anchored to the completed run (results), not the
@@ -2074,8 +2068,9 @@ with tab_audit:
             for mid in chart_models:
                 vals = []
                 for c in topics_list:
-                    _jp = topic_data.get(mid, {}).get(c, {}).get("judge_pct")
-                    vals.append((100 - _jp) if _jp is not None else None)
+                    vals.append(topic_data.get(mid, {}).get(c, {}).get("hall_judge"))
+                if all(v is None for v in vals):
+                    continue
                 fig.add_trace(go.Bar(
                     name=role_label(mid), x=topics_disp, y=vals,
                     marker_color=mcolor[mid],
@@ -2086,6 +2081,7 @@ with tab_audit:
                 **_chart_layout,
                 title=dict(text="Figure 3: Hallucination rate by topic (LLM-Judge · GPT-judge method)", font=dict(size=12, color="#ccd6e0"), x=0),
                 yaxis=dict(showgrid=True, gridcolor="#2e3a4a", ticksuffix="%"),
+                showlegend=True,
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -2109,11 +2105,10 @@ with tab_audit:
             val_store[mid] = {}
             for cat in cats_run:
                 td = topic_data[mid].get(cat, {})
-                _jp = td.get("judge_pct")
                 val_store[mid][cat] = {
                     "ROUGE-L (c-i)": td.get("rouge_mean"),
                     EMB_ROW:         td.get("emb_mean"),
-                    HALLUC_ROW:      (100 - _jp) if _jp is not None else None,
+                    HALLUC_ROW:      td.get("hall_judge"),
                 }
 
         # Hallucination rate is lower-is-better; ROUGE-L is higher-is-better.
@@ -2349,8 +2344,7 @@ with tab_audit:
         cards_html = '<div class="section-label">Vulnerability Analysis</div><div style="display:flex;gap:10px;flex-wrap:wrap;">'
         for cat in cats_run:
             td       = topic_data[candidate_mid].get(cat, {})
-            _jp      = td.get("judge_pct")
-            hall     = (100 - _jp) if _jp is not None else None
+            hall     = td.get("hall_judge")
             rouge    = td.get("rouge_mean")
             emb      = td.get("emb_mean")
             risk     = ("High" if hall > 40 else "Medium" if hall > 20 else "Low") if hall is not None else "Unknown"

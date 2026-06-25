@@ -2429,11 +2429,6 @@ with tab_audit:
 
         qid_order = list(qid_to_seed.keys())
 
-        st.caption(
-            "ROUGE-L is reference only, not a hallucination signal. Hallucinated comes from "
-            "LLM-Judge (TruthfulQA's deprecated GPT-Judge, proxied) - the actual hallucination metric."
-        )
-
         # ── Human Override - real buttons, one row per question, no
         #     table, no dropdown. Header bar mirrors the top widget's,
         #     including its own Pass/Flagged/Total counts (same numbers,
@@ -2599,33 +2594,39 @@ with tab_audit:
         # ── Limitations ─────────────────────────────────────────────
         limitations_html = """
         <div style="margin-top:18px">
-          <div style="font-size:11px;font-weight:700;color:#eef2f7;margin-bottom:6px">Limitations</div>
-          <div style="font-size:11px;color:#8899aa;line-height:1.7">
-            <b style="color:#aabbcc">LLM-Judge* is a proxy, not the original metric</b>: "GPT-Judge"
-            is TruthfulQA's own proposed metric (Lin et al., 2022), a fine-tuned GPT-3 curie
-            classifier, since deprecated by OpenAI; BytePlus has no equivalent. This app instead
-            uses a BytePlus-hosted general-purpose LLM, prompted (not fine-tuned) to classify
-            truthfulness. Enabled by default, since it's now the hallucination metric - this
-            roughly doubles the run's token cost (one extra call per question per model) versus
-            ROUGE-L alone.
-            <b style="color:#aabbcc">ROUGE-L is informational, not a hallucination signal</b>:
-            it's shown as a raw similarity score for context. LLM-Judge is the sole
-            hallucination metric in this app, replacing TruthfulQA's deprecated GPT-Judge
-            classifier.
-            <b style="color:#aabbcc">No standalone bias metric</b>: neither TruthfulQA nor
-            LLMAuditor (Amirizaniani et al., 2024) specifies one, and this app doesn't compute
-            one either. Probe Alignment measures whether paraphrased variants of a question
-            agree with each other - it makes no claim about bias.
-            <b style="color:#aabbcc">No within-question variance estimate</b>: each question is
-            answered once per model, so there is no repeated-sampling spread to report per
-            question — unlike the original LLMAuditor multi-probe design, this is a single
-            point estimate per question, aggregated only across questions within a topic.
-            <b style="color:#aabbcc">Small per-topic samples</b>: the 6 audited categories range
-            from 5 to 9 questions each, so topic-level ROUGE-L/hallucination-rate figures should
-            be read as indicative, not statistically robust, estimates.
-            <b style="color:#aabbcc">Descriptive, not inferential, statistics</b>: the
-            candidate-vs-reference percentage differences describe the direction and magnitude
-            of observed scores; they are not hypothesis-tested estimates.
+          <div style="font-size:11px;font-weight:700;color:#eef2f7;margin-bottom:10px">Limitations</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+
+            <div style="background:#1a2233;border-left:3px solid #4C9BE8;border-radius:4px;padding:10px 14px">
+              <div style="font-size:11px;font-weight:700;color:#ccd6e0;margin-bottom:3px">LLM-Judge is a stand-in for GPT-Judge</div>
+              <div style="font-size:11px;color:#8899aa;line-height:1.6">The original TruthfulQA metric was a fine-tuned GPT-3 classifier trained on human labels — it has since been deprecated. We replace it with a general-purpose LLM prompted to behave the same way. It follows the same method but is not guaranteed to match the original's accuracy.</div>
+            </div>
+
+            <div style="background:#1a2233;border-left:3px solid #4C9BE8;border-radius:4px;padding:10px 14px">
+              <div style="font-size:11px;font-weight:700;color:#ccd6e0;margin-bottom:3px">ROUGE-L and embedding scores measure wording, not truth</div>
+              <div style="font-size:11px;color:#8899aa;line-height:1.6">These two metrics compare how closely the model's answer matches a fixed reference phrase — they can flag a correct answer as poor if the model paraphrases, and miss a wrong answer that happens to use similar words. Treat them as style signals, not factual ones.</div>
+            </div>
+
+            <div style="background:#1a2233;border-left:3px solid #4C9BE8;border-radius:4px;padding:10px 14px">
+              <div style="font-size:11px;font-weight:700;color:#ccd6e0;margin-bottom:3px">Small sample sizes — read topic scores as directional</div>
+              <div style="font-size:11px;color:#8899aa;line-height:1.6">Each topic covers 5–9 questions. That is enough to surface clear patterns but not enough to make statistically reliable claims. A single surprising answer can swing a topic's score noticeably.</div>
+            </div>
+
+            <div style="background:#1a2233;border-left:3px solid #4C9BE8;border-radius:4px;padding:10px 14px">
+              <div style="font-size:11px;font-weight:700;color:#ccd6e0;margin-bottom:3px">Each question is answered once — no variance estimate</div>
+              <div style="font-size:11px;color:#8899aa;line-height:1.6">The model answers each question a single time at temperature 0. There is no repeated sampling, so the scores don't capture how consistent the model is across runs — only whether it got it right this time.</div>
+            </div>
+
+            <div style="background:#1a2233;border-left:3px solid #4C9BE8;border-radius:4px;padding:10px 14px">
+              <div style="font-size:11px;font-weight:700;color:#ccd6e0;margin-bottom:3px">Scores describe what happened, not whether it's significant</div>
+              <div style="font-size:11px;color:#8899aa;line-height:1.6">Candidate vs. reference differences show direction and size of the gap. They are not hypothesis-tested — a 5 pp difference here is an observation, not a statistically proven gap.</div>
+            </div>
+
+            <div style="background:#1a2233;border-left:3px solid #4C9BE8;border-radius:4px;padding:10px 14px">
+              <div style="font-size:11px;font-weight:700;color:#ccd6e0;margin-bottom:3px">No bias metric</div>
+              <div style="font-size:11px;color:#8899aa;line-height:1.6">Neither TruthfulQA nor LLMAuditor defines a bias score, and this audit does not compute one. Probe Alignment only checks whether the model gives consistent answers to rephrased versions of the same question — it says nothing about demographic or ideological bias.</div>
+            </div>
+
           </div>
         </div>
         """

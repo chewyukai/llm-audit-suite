@@ -2015,7 +2015,8 @@ with tab_audit:
         # Table 4 - real models only, HTML merged headers
         all_models  = list(results.keys())
         HALLUC_ROW  = "Hallucination Rate (LLM-Judge)*"
-        METRIC_ROWS = ["ROUGE-L (c-i)", HALLUC_ROW]
+        EMB_ROW     = "Emb Sim (c-i)"
+        METRIC_ROWS = ["ROUGE-L (c-i)", EMB_ROW, HALLUC_ROW]
         n_topics    = len(cats_run)
 
         def short(mid):
@@ -2029,6 +2030,7 @@ with tab_audit:
                 _jp = td.get("judge_pct")
                 val_store[mid][cat] = {
                     "ROUGE-L (c-i)": td.get("rouge_mean"),
+                    EMB_ROW:         td.get("emb_mean"),
                     HALLUC_ROW:      (100 - _jp) if _jp is not None else None,
                 }
 
@@ -2039,6 +2041,7 @@ with tab_audit:
             if not vals:
                 return None
             return min(vals) if metric == HALLUC_ROW else max(vals)
+        # EMB_ROW is higher-is-better (same direction as ROUGE-L)
 
         best_col = {}
         for cat in cats_run:
@@ -2080,6 +2083,22 @@ with tab_audit:
                     return f"{base} {rel_html}"
                 return base
 
+            if metric == EMB_ROW:
+                v = val_store[mid][cat].get(EMB_ROW)
+                if v is None:
+                    return "-"
+                base = f"{v:.3f}"
+                if is_cand and reference_mid is not None:
+                    ref_v = val_store[reference_mid][cat].get(EMB_ROW)
+                    rel = _rel_diff_pct(v, ref_v)
+                    if rel is None:
+                        rel_html = '<span style="color:#667788">(n/a)</span>'
+                    else:
+                        rcol = "#21c354" if rel > 0 else "#ff4b4b" if rel < 0 else "#8899aa"
+                        rel_html = f'<span style="color:{rcol}">({rel:+.0f}%)</span>'
+                    return f"{base} {rel_html}"
+                return base
+
             if metric == HALLUC_ROW:
                 v = val_store[mid][cat].get(HALLUC_ROW)
                 if v is None:
@@ -2091,7 +2110,6 @@ with tab_audit:
                     if pp is None:
                         pp_html = '<span style="color:#667788">(n/a)</span>'
                     else:
-                        # higher hallucination rate is worse
                         pcol = "#ff4b4b" if pp > 0 else "#21c354" if pp < 0 else "#8899aa"
                         pp_html = f'<span style="color:{pcol}">({pp:+.0f}%)</span>'
                     return f"{base} {pp_html}"
@@ -2104,6 +2122,19 @@ with tab_audit:
             is_cand = (mid == candidate_mid)
 
             if metric == "ROUGE-L (c-i)":
+                base = f"{v:.3f}"
+                if is_cand and reference_mid is not None:
+                    ref_v = overall_vals.get((reference_mid, metric))
+                    rel = _rel_diff_pct(v, ref_v)
+                    if rel is None:
+                        rel_html = '<span style="color:#667788">(n/a)</span>'
+                    else:
+                        rcol = "#21c354" if rel > 0 else "#ff4b4b" if rel < 0 else "#8899aa"
+                        rel_html = f'<span style="color:{rcol}">({rel:+.0f}%)</span>'
+                    return f"{base} {rel_html}"
+                return base
+
+            if metric == EMB_ROW:
                 base = f"{v:.3f}"
                 if is_cand and reference_mid is not None:
                     ref_v = overall_vals.get((reference_mid, metric))

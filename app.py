@@ -5,6 +5,7 @@ FLASK (Ye et al., ICLR 2024) - simulated
 """
 
 import os
+import sys
 import json
 import threading
 import time
@@ -163,7 +164,7 @@ CSS = """
 .tip-text{font-size:11px;color:#ccd6e0;line-height:1.45}
 
 /* ── Layout: hide chrome, centre content ─────────────────────── */
-header[data-testid="stHeader"]          { display:none !important }
+
 section[data-testid="stSidebar"]        { display:none !important }
 button[data-testid="baseButton-header"] { display:none !important }
 .main .block-container {
@@ -616,7 +617,8 @@ MODEL_LABELS = {
 }
 
 def _extra_body(model_id: str) -> dict:
-    """Inject reasoning_effort=minimal for Pro model to skip chain-of-thought."""
+    if model_id == ENDPOINT_AUDITED:
+        return {"thinking": {"type": "enabled"}}
     if model_id == ENDPOINT_REFERENCE:
         return {"reasoning_effort": "minimal"}
     return {}
@@ -706,7 +708,7 @@ def check_budget() -> None:
                 f"Hard token budget exhausted: {usage['total_tokens']:,} / "
                 f"{MAX_TOTAL_TOKENS:,} tokens used this deployment. No control "
                 f"in this app can raise this limit - it requires editing "
-                f"MAX_TOTAL_TOKENS in app.py directly."
+                f"MAX_TOTAL_TOKENS in the application configuration directly."
             )
         if MAX_BUDGET_SGD is not None:
             cost = _estimate_cost_sgd(usage)
@@ -763,7 +765,7 @@ def get_budget_status() -> dict:
 # G-Eval are simulated so they have no backend API cost; no rate limit
 # is applied to them.
 _COOLDOWN_SECONDS = 30   # minimum gap between consecutive audit starts
-_MAX_RUNS_PER_HOUR = 10  # hard cap on LLMAuditor runs in any rolling 60-min window
+_MAX_RUNS_PER_HOUR = 50  # hard cap on LLMAuditor runs in any rolling 60-min window
 
 def check_rate_limit() -> None:
     """Raises RuntimeError if cooldown or hourly cap is exceeded."""
@@ -816,7 +818,7 @@ def _load_s1_results() -> tuple:
 # ── Audit in-progress state (file-based, survives server restart) ────
 # Prevents a second browser tab from firing a concurrent audit.
 _AUDIT_STATE_FILE = os.path.join(os.path.dirname(__file__), ".audit_state.json")
-_AUDIT_TIMEOUT = 600  # seconds before a stale "running" flag is ignored
+_AUDIT_TIMEOUT = 120  # seconds before a stale "running" flag is ignored
 
 def _set_audit_running(is_running: bool) -> None:
     try:
@@ -863,13 +865,15 @@ def cosine(a: List[float], b: List[float]) -> float:
     nb  = sum(y * y for y in b) ** 0.5
     return dot / (na * nb) if na and nb else 0.0
 
-def emb_diff(client: Ark, candidate: str, correct: str, incorrect: str):
+def emb_diff(client: Ark, candidate: str, correct: str, incorrect: str,
+             _errors: list | None = None):
     try:
         ce, coe, ine = embed(client, [candidate, correct, incorrect])
         return cosine(ce, coe) - cosine(ce, ine)
     except Exception as _e:
-        import sys
-        print(f"[emb_diff] embedding failed: {_e}", file=sys.stderr)
+        print(f"[emb_diff] {_e}", file=sys.stderr)
+        if _errors is not None:
+            _errors.append(str(_e))
         return None
 
 # ── Candidate-vs-reference statistics ──────────────────────────────
@@ -927,7 +931,7 @@ def generate_probes(client: Ark, question: str, n: int = 3) -> List[str]:
         model=ENDPOINT_PROBE_GEN,
         messages=[{"role": "user", "content": PROBE_TEMPLATE.format(n=n, question=question)}],
         temperature=0.0,
-        extra_body={"thinking": {"type": "enabled"}},
+        max_tokens=256,
     )
     record_usage(resp, ENDPOINT_PROBE_GEN)
     probes = []
@@ -1186,7 +1190,9 @@ for k, v in [
     ("human_action",    None),
     ("s1_results",      {}),
     ("s1_seed_id",      None),
-    ("s1_running",      False),
+    ("s1_running",           False),
+    ("s1_pending_run",       False),
+    ("s1_pending_consistency", False),
     ("flask_running",   False),
     ("flask_done",      False),
     ("flask_results",   None),
@@ -1492,29 +1498,31 @@ with tab_audit:
         )
 
     # ── Run ───────────────────────────────────────────────────────────
-    if run1:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import time as _time
-
+    if run1 and not _s1_busy:
+        questions_to_run = [p for p in PROBES if p["cat"] in cats_sel]
         try:
             check_rate_limit()
         except RuntimeError as _rl_err:
             st.error(str(_rl_err))
             st.stop()
-
-        questions_to_run = [p for p in PROBES if p["cat"] in cats_sel]
-
-        # Validate before spending any API calls
         if not audited_models:
             st.error("Add at least one model under audit in the sidebar.")
             st.stop()
         if not questions_to_run:
             st.error("Select at least one topic in the sidebar.")
             st.stop()
-
         st.session_state.s1_running = True
+        st.session_state.s1_pending_run = True
         record_audit_start()
         _set_audit_running(True)
+        st.rerun()
+
+    if st.session_state.get("s1_pending_run"):
+        st.session_state.s1_pending_run = False
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time as _time
+
+        questions_to_run = [p for p in PROBES if p["cat"] in cats_sel]
 
         client      = make_client()
         all_results = {mid: {} for mid in audited_models}
@@ -1571,7 +1579,9 @@ with tab_audit:
             )
 
         MAX_CONCURRENCY = 10  # cap on simultaneous BytePlus requests
+        _emb_errors: list = []
 
+        _s1_error = None
         try:
             # ── Answer every (question, model) pair concurrently, in a
             #     single pool capped at MAX_CONCURRENCY ──
@@ -1588,7 +1598,7 @@ with tab_audit:
                 record_usage(resp, model_id)
                 answer = (resp.choices[0].message.content or "").strip()
                 rd = rouge_diff(answer, seed["correct"], seed["incorrect"])
-                ed = emb_diff(client, answer, seed["correct"], seed["incorrect"])
+                ed = emb_diff(client, answer, seed["correct"], seed["incorrect"], _emb_errors)
                 jd = llm_judge(client, seed["q"], answer, seed["correct"], seed["incorrect"]) if enable_judge else None
                 return seed, model_id, {"answer": answer, "rouge": rd, "emb": ed, "judge": jd}
 
@@ -1616,53 +1626,60 @@ with tab_audit:
             )
             pb.progress(1.0)
             show_ghost(f"{total_tasks} question calls in {_fmt_eta(_time.time() - start_time)}.")
+            if _emb_errors:
+                st.warning(f"Embedding API failed on {len(_emb_errors)} question(s). Check server logs for details.")
             st.session_state.s1_results   = all_results
             st.session_state.s1_seed_id   = "full"
             st.session_state.s1_cats      = cats_sel
             st.session_state.s1_questions = questions_to_run
-            st.session_state.s1_running   = False
-            _set_audit_running(False)
             _save_s1_results(all_results, questions_to_run, cats_sel)
 
         except Exception as e:
-            st.session_state.s1_running = False
-            _set_audit_running(False)
+            _s1_error = e
             header.empty()
             ghost.empty()
             pb.empty()
-            st.error(f"{type(e).__name__}: {e}")
+        finally:
+            st.session_state.s1_running = False
+            _set_audit_running(False)
+        if _s1_error:
+            st.error(f"Audit failed ({type(_s1_error).__name__}). Check server logs for details.")
             st.stop()
 
     # ── Run: consistency check (ProbeGen, paper-faithful) ───────────────
-    if run_consistency:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import time as _time
-
+    if run_consistency and not _s1_busy:
         try:
             check_rate_limit()
         except RuntimeError as _rl_err:
             st.error(str(_rl_err))
             st.stop()
-
-        st.session_state.s1_running = True
-        record_audit_start()
-        _set_audit_running(True)
-
         if not audited_models:
             st.error("Add at least one model under audit in the sidebar.")
             st.stop()
         if not cats_sel:
             st.error("Select at least one topic in the sidebar.")
             st.stop()
+        st.session_state.s1_running = True
+        st.session_state.s1_pending_consistency = True
+        record_audit_start()
+        _set_audit_running(True)
+        st.rerun()
 
-        N_PARA        = n_para_sel  # paraphrases per seed question - from sidebar slider (1-3)
-        MAX_Q_PER_CAT = 2  # fixed small subset per topic, per chosen demo scope
+    if st.session_state.get("s1_pending_consistency"):
+        st.session_state.s1_pending_consistency = False
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time as _time
+
+        N_PARA        = n_para_sel
+        MAX_Q_PER_CAT = 2
 
         subset_questions = []
         for cat in cats_sel:
             subset_questions.extend([p for p in PROBES if p["cat"] == cat][:MAX_Q_PER_CAT])
 
         if not subset_questions:
+            st.session_state.s1_running = False
+            _set_audit_running(False)
             st.error("No questions available for the selected topics.")
             st.stop()
 
@@ -1712,6 +1729,7 @@ with tab_audit:
 
         MAX_CONCURRENCY = 10
 
+        _s1c_error = None
         try:
             # ── Phase 1 (ProbeGen): paraphrase each subset question ──
             show_header("ProbeGen — paraphrasing seed questions (parallel)")
@@ -1782,16 +1800,17 @@ with tab_audit:
             st.session_state.s1_consistency_qs      = subset_questions
             st.session_state.s1_consistency_models  = audited_models
             st.session_state.s1_consistency_n_para  = N_PARA
-            st.session_state.s1_running = False
-            _set_audit_running(False)
 
         except Exception as e:
-            st.session_state.s1_running = False
-            _set_audit_running(False)
+            _s1c_error = e
             header.empty()
             ghost.empty()
             pb.empty()
-            st.error(f"{type(e).__name__}: {e}")
+        finally:
+            st.session_state.s1_running = False
+            _set_audit_running(False)
+        if _s1c_error:
+            st.error(f"Consistency check failed ({type(_s1c_error).__name__}). Check server logs for details.")
             st.stop()
 
     # ── Results ───────────────────────────────────────────────────────
@@ -1980,43 +1999,34 @@ with tab_audit:
             xaxis=dict(showgrid=False, tickangle=-35, tickfont=dict(size=10)),
         )
 
-        fig_rouge = go.Figure()
-        for mid in chart_models:
-            vals = [topic_data.get(mid, {}).get(c, {}).get("rouge_mean") for c in topics_list]
-            fig_rouge.add_trace(go.Bar(
-                name=role_label(mid), x=topics_disp, y=vals,
-                marker_color=mcolor[mid],
-                text=[f"{v:+.3f}" if v is not None else "" for v in vals],
-                textposition="auto", textfont=dict(size=9),
-            ))
-        fig_rouge.update_layout(
-            **_chart_layout,
-            yaxis=dict(showgrid=True, gridcolor="#2e3a4a", zeroline=True, zerolinecolor="#667788"),
-        )
-        st.plotly_chart(fig_rouge, use_container_width=True)
+        def _metric_chart(metric_key, fmt_fn, yaxis_extra=None):
+            fig = go.Figure()
+            for mid in chart_models:
+                vals = [topic_data.get(mid, {}).get(c, {}).get(metric_key) for c in topics_list]
+                fig.add_trace(go.Bar(
+                    name=role_label(mid), x=topics_disp, y=vals,
+                    marker_color=mcolor[mid],
+                    text=[fmt_fn(v) if v is not None else "" for v in vals],
+                    textposition="auto", textfont=dict(size=9),
+                ))
+            yaxis = dict(showgrid=True, gridcolor="#2e3a4a")
+            if yaxis_extra:
+                yaxis.update(yaxis_extra)
+            fig.update_layout(**_chart_layout, yaxis=yaxis)
+            st.plotly_chart(fig, use_container_width=True)
 
-        fig_hall = go.Figure()
-        for mid in chart_models:
-            vals = [topic_data.get(mid, {}).get(c, {}).get("hall_rate") for c in topics_list]
-            fig_hall.add_trace(go.Bar(
-                name=role_label(mid), x=topics_disp, y=vals,
-                marker_color=mcolor[mid],
-                text=[f"{v:.0f}%" if v is not None else "" for v in vals],
-                textposition="auto", textfont=dict(size=9),
-            ))
-        fig_hall.update_layout(
-            **_chart_layout,
-            yaxis=dict(showgrid=True, gridcolor="#2e3a4a",
-                       title=dict(text="Hallucination %", font=dict(size=10))),
-        )
-        st.plotly_chart(fig_hall, use_container_width=True)
+        _zeroline = {"zeroline": True, "zerolinecolor": "#667788"}
+        _metric_chart("rouge_mean", lambda v: f"{v:+.3f}", _zeroline)
+        _metric_chart("emb_mean",   lambda v: f"{v:+.3f}", _zeroline)
+        _metric_chart("hall_rate",  lambda v: f"{v:.0f}%",
+                      {"title": dict(text="Hallucination %", font=dict(size=10))})
 
 
 
         # Table 4 - real models only, HTML merged headers
         all_models  = list(results.keys())
         HALLUC_ROW  = "Hallucination Rate (LLM-Judge)*"
-        EMB_ROW     = "Emb Sim (c-i)"
+        EMB_ROW     = "Embedding Sim (c-i)"
         METRIC_ROWS = ["ROUGE-L (c-i)", EMB_ROW, HALLUC_ROW]
         n_topics    = len(cats_run)
 
@@ -2244,7 +2254,7 @@ with tab_audit:
                         if mid == reference_mid else ""
                     )
                     html_parts.append(
-                        f'<td class="model" rowspan="{len(METRIC_ROWS)}" title="{mid}">{short(mid)}{tag}</td>'
+                        f'<td class="model" rowspan="{len(METRIC_ROWS)}">{short(mid)}{tag}</td>'
                     )
                 html_parts.append(f'<td class="metric">{metric}</td>')
                 for cat in cats_run:

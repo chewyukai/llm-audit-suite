@@ -1869,10 +1869,7 @@ with tab_audit:
         reference_mid = result_mids[1] if len(result_mids) > 1 else None
 
         def short(mid):
-            """Shorten long endpoint IDs for chart/legend labels."""
-            if mid.startswith("ep-") and len(mid) > 18:
-                return mid[:10] + "..." + mid[-4:]
-            return mid
+            return MODEL_LABELS.get(mid, mid)
         all_q_means = [q_data[candidate_mid][p["id"]]["rouge_mean"] for p in questions_run if p["id"] in q_data[candidate_mid]]
         all_halls   = [q_data[candidate_mid][p["id"]]["hall_rate"]  for p in questions_run if p["id"] in q_data[candidate_mid]]
         overall_rouge = sum(all_q_means) / len(all_q_means) if all_q_means else 0
@@ -1961,11 +1958,10 @@ with tab_audit:
         topics_disp = [c.upper() for c in topics_list]
 
         def role_label(mid):
-            """Legend label: role (Candidate/Reference) plus short endpoint id."""
             if mid == candidate_mid:
-                return f"Candidate ({short(mid)})"
+                return f"Candidate · {short(mid)}"
             if mid == reference_mid:
-                return f"Reference ({short(mid)})"
+                return f"Reference · {short(mid)}"
             return short(mid)
 
         ref_fig_clause = (
@@ -2023,9 +2019,7 @@ with tab_audit:
         n_topics    = len(cats_run)
 
         def short(mid):
-            if mid.startswith("ep-") and len(mid) > 20:
-                return mid[:14] + "..." + mid[-5:]
-            return mid
+            return MODEL_LABELS.get(mid, mid)
 
         val_store = {}
         for mid in all_models:

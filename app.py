@@ -1228,7 +1228,6 @@ for k, v in [
     ("s1_seed_id",      None),
     ("s1_running",           False),
     ("s1_pending_run",       False),
-    ("s1_pending_consistency", False),
     ("flask_running",   False),
     ("flask_done",      False),
     ("flask_results",   None),
@@ -1516,22 +1515,15 @@ with tab_audit:
                 if st.checkbox(CAT_DISPLAY.get(cat, cat).upper(), value=True, key=f"cat_{cat}"):
                     cats_sel.append(cat)
         with _ac_cons:
-            st.html('<div class="sb-label">Consistency · ProbeGen</div>')
-            n_para_sel = st.slider("Paraphrases per question", 1, 5, value=5)
+            st.html('<div class="sb-label">ProbeGen</div>')
+            n_para_sel = st.slider("Probes per question", 1, 3, value=2)
 
     enable_judge = True
     _s1_busy = st.session_state.get("s1_running", False) or _is_audit_running_globally()
-    _run_col1, _run_col2 = st.columns(2)
-    with _run_col1:
-        run1 = st.button(
-            "Running…" if _s1_busy else "Run full audit",
-            type="primary", use_container_width=True, disabled=_s1_busy,
-        )
-    with _run_col2:
-        run_consistency = st.button(
-            "Running…" if _s1_busy else "Run consistency check",
-            use_container_width=True, disabled=_s1_busy,
-        )
+    run1 = st.button(
+        "Running…" if _s1_busy else "Run full audit",
+        type="primary", use_container_width=True, disabled=_s1_busy,
+    )
 
     # ── Run ───────────────────────────────────────────────────────────
     if run1 and not _s1_busy:
@@ -1549,6 +1541,7 @@ with tab_audit:
             st.stop()
         st.session_state.s1_running = True
         st.session_state.s1_pending_run = True
+        st.session_state.s1_n_para = n_para_sel
         record_audit_start()
         _set_audit_running(True)
         st.rerun()
@@ -1558,15 +1551,12 @@ with tab_audit:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time as _time
 
+        N_PARA           = st.session_state.get("s1_n_para", 2)
         questions_to_run = [p for p in PROBES if p["cat"] in cats_sel]
+        client           = make_client()
 
-        client      = make_client()
-        all_results = {mid: {} for mid in audited_models}
-
-        # One unit = one (question, model) answer. No probe paraphrasing -
-        # each real TruthfulQA question is answered directly once per
-        # audited model.
-        total_overall = len(questions_to_run) * len(audited_models)
+        # total units = ProbeGen calls + (probes × models) answer calls
+        total_overall = len(questions_to_run) + len(questions_to_run) * N_PARA * len(audited_models)
         done_overall  = 0
         start_time    = _time.time()
 
@@ -1575,8 +1565,7 @@ with tab_audit:
 
         def _fmt_eta(seconds):
             seconds = max(0, int(seconds))
-            if seconds < 60:
-                return f"{seconds}s"
+            if seconds < 60: return f"{seconds}s"
             m, s = divmod(seconds, 60)
             return f"{m}m {s:02d}s"
 
@@ -1585,8 +1574,6 @@ with tab_audit:
         ghost  = st.empty()
 
         def show_header(phase_label):
-            # ETA unknown until at least one unit has completed - avoids a
-            # meaningless estimate from zero samples.
             if done_overall == 0:
                 eta_str = "calculating..."
             else:
@@ -1594,7 +1581,6 @@ with tab_audit:
                 avg_per_unit = elapsed / done_overall
                 remaining    = max(total_overall - done_overall, 0)
                 eta_str = "almost done" if remaining == 0 else _fmt_eta(avg_per_unit * remaining)
-
             header.markdown(
                 f'<div style="font-size:11px;color:#8899aa;margin-bottom:2px">'
                 f'<b>{phase_label}</b> &middot; '
@@ -1605,191 +1591,37 @@ with tab_audit:
             pb.progress(min(done_overall / total_overall, 1.0))
 
         def show_ghost(text):
-            # Pure ephemeral detail - which item just finished. Carries no
-            # progress numbers of its own, so it can never disagree with
-            # the header/bar above it.
             ghost.markdown(
                 f'<div style="font-size:11px;color:#5a6675;font-style:italic;'
                 f'margin-top:-4px">{text}</div>',
                 unsafe_allow_html=True,
             )
 
-        MAX_CONCURRENCY = 10  # cap on simultaneous BytePlus requests
+        MAX_CONCURRENCY = 50
         _emb_errors: list = []
-
         _s1_error = None
+
         try:
-            # ── Answer every (question, model) pair concurrently, in a
-            #     single pool capped at MAX_CONCURRENCY ──
-            tasks = [(seed, model_id) for seed in questions_to_run for model_id in audited_models]
-
-            def run_task(seed, model_id):
-                check_budget()
-                resp = client.chat.completions.create(
-                    model=model_id,
-                    messages=[{"role": "user", "content": f"Answer concisely and factually:\n\n{seed['q']}"}],
-                    temperature=0.0, max_tokens=256,
-                    extra_body=_extra_body(model_id),
-                )
-                record_usage(resp, model_id)
-                answer = (resp.choices[0].message.content or "").strip()
-                rd = rouge_diff(answer, seed["correct"], seed["incorrect"])
-                ed = emb_diff(client, answer, seed["correct"], seed["incorrect"], _emb_errors)
-                jd = llm_judge(client, seed["q"], answer, seed["correct"], seed["incorrect"]) if (enable_judge and model_id == ENDPOINT_AUDITED) else None
-                return seed, model_id, {"answer": answer, "rouge": rd, "emb": ed, "judge": jd}
-
-            total_tasks = len(tasks)
-            show_header("Answering questions (parallel)")
-
-            if total_tasks:
-                workers = min(total_tasks, MAX_CONCURRENCY)
-                with ThreadPoolExecutor(max_workers=workers) as ex:
-                    futures = [ex.submit(run_task, s, m) for (s, m) in tasks]
-                    for future in as_completed(futures):
-                        seed, model_id, r = future.result()
-                        all_results[model_id][seed["id"]] = r
-
-                        done_overall += 1
-                        show_header("Answering questions (parallel)")
-                        show_ghost(f"Answered: ({seed['cat'].upper()}) {seed['q'][:45]}... "
-                                   f"via {_short(model_id)}")
-
-            done_overall = total_overall
-            header.markdown(
-                '<div style="font-size:11px;color:#21c354">'
-                '<b>Audit complete</b></div>',
-                unsafe_allow_html=True,
-            )
-            pb.progress(1.0)
-            show_ghost(f"{total_tasks} question calls in {_fmt_eta(_time.time() - start_time)}.")
-            if _emb_errors:
-                st.warning(f"Embedding API failed on {len(_emb_errors)} question(s). Check server logs for details.")
-            st.session_state.s1_results   = all_results
-            st.session_state.s1_seed_id   = "full"
-            st.session_state.s1_cats      = cats_sel
-            st.session_state.s1_questions = questions_to_run
-            _save_s1_results(all_results, questions_to_run, cats_sel)
-
-        except Exception as e:
-            _s1_error = e
-            header.empty()
-            ghost.empty()
-            pb.empty()
-        finally:
-            st.session_state.s1_running = False
-            _set_audit_running(False)
-        if _s1_error:
-            st.error(f"Audit failed ({type(_s1_error).__name__}). Check server logs for details.")
-            st.stop()
-        st.rerun()
-
-    # ── Run: consistency check (ProbeGen, paper-faithful) ───────────────
-    if run_consistency and not _s1_busy:
-        try:
-            check_rate_limit()
-        except RuntimeError as _rl_err:
-            st.error(str(_rl_err))
-            st.stop()
-        if not audited_models:
-            st.error("Add at least one model under audit in the sidebar.")
-            st.stop()
-        if not cats_sel:
-            st.error("Select at least one topic in the sidebar.")
-            st.stop()
-        st.session_state.s1_running = True
-        st.session_state.s1_pending_consistency = True
-        record_audit_start()
-        _set_audit_running(True)
-        st.rerun()
-
-    if st.session_state.get("s1_pending_consistency"):
-        st.session_state.s1_pending_consistency = False
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import time as _time
-
-        N_PARA        = n_para_sel
-        MAX_Q_PER_CAT = 2
-
-        subset_questions = []
-        for cat in cats_sel:
-            subset_questions.extend([p for p in PROBES if p["cat"] == cat][:MAX_Q_PER_CAT])
-
-        if not subset_questions:
-            st.session_state.s1_running = False
-            _set_audit_running(False)
-            st.error("No questions available for the selected topics.")
-            st.stop()
-
-        client = make_client()
-
-        total_overall = len(subset_questions) + len(subset_questions) * len(audited_models) * N_PARA
-        done_overall  = 0
-        start_time    = _time.time()
-
-        def _short(mid):
-            return MODEL_LABELS.get(mid, mid)
-
-        def _fmt_eta(seconds):
-            seconds = max(0, int(seconds))
-            if seconds < 60:
-                return f"{seconds}s"
-            m, s = divmod(seconds, 60)
-            return f"{m}m {s:02d}s"
-
-        header = st.empty()
-        pb     = st.progress(0)
-        ghost  = st.empty()
-
-        def show_header(phase_label):
-            if done_overall == 0:
-                eta_str = "calculating..."
-            else:
-                elapsed      = _time.time() - start_time
-                avg_per_unit = elapsed / done_overall
-                remaining    = max(total_overall - done_overall, 0)
-                eta_str = "almost done" if remaining == 0 else _fmt_eta(avg_per_unit * remaining)
-            header.markdown(
-                f'<div style="font-size:11px;color:#8899aa;margin-bottom:2px">'
-                f'<b>{phase_label}</b> &middot; '
-                f'Step {min(done_overall, total_overall)}/{total_overall} &middot; ETA {eta_str}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            pb.progress(min(done_overall / total_overall, 1.0))
-
-        def show_ghost(text):
-            ghost.markdown(
-                f'<div style="font-size:11px;color:#5a6675;font-style:italic;'
-                f'margin-top:-4px">{text}</div>',
-                unsafe_allow_html=True,
-            )
-
-        MAX_CONCURRENCY = 10
-
-        _s1c_error = None
-        try:
-            # ── Phase 1 (ProbeGen): paraphrase each subset question ──
-            show_header("ProbeGen — paraphrasing seed questions (parallel)")
+            # ── Phase 1: ProbeGen — paraphrase every seed question ──────
+            show_header("Phase 1/2 · ProbeGen — paraphrasing questions")
             probes_by_qid = {}
-            p1_workers = min(len(subset_questions), MAX_CONCURRENCY)
-            with ThreadPoolExecutor(max_workers=p1_workers) as ex:
-                futures = {
-                    ex.submit(generate_probes, client, seed["q"], N_PARA): seed
-                    for seed in subset_questions
-                }
+            with ThreadPoolExecutor(max_workers=min(len(questions_to_run), MAX_CONCURRENCY)) as ex:
+                futures = {ex.submit(generate_probes, client, seed["q"], N_PARA): seed
+                           for seed in questions_to_run}
                 for future in as_completed(futures):
                     seed = futures[future]
                     probes_by_qid[seed["id"]] = future.result()
                     done_overall += 1
-                    show_header("ProbeGen — paraphrasing seed questions (parallel)")
-                    show_ghost(f"Paraphrased: ({seed['cat'].upper()}) {seed['q'][:50]}...")
+                    show_header("Phase 1/2 · ProbeGen — paraphrasing questions")
+                    show_ghost(f"Paraphrased: ({seed['cat'].upper()}) {seed['q'][:55]}...")
 
-            # ── Phase 2: answer every (question, model, paraphrase) ──
-            tasks = []
-            for seed in subset_questions:
-                for model_id in audited_models:
-                    for para in probes_by_qid.get(seed["id"], []):
-                        tasks.append((seed, model_id, para))
+            # ── Phase 2: answer every (probe, model) pair ───────────────
+            tasks = [
+                (seed, model_id, para)
+                for seed in questions_to_run
+                for para in probes_by_qid.get(seed["id"], [])
+                for model_id in audited_models
+            ]
 
             def run_task(seed, model_id, para):
                 check_budget()
@@ -1802,52 +1634,71 @@ with tab_audit:
                 record_usage(resp, model_id)
                 answer = (resp.choices[0].message.content or "").strip()
                 rd = rouge_diff(answer, seed["correct"], seed["incorrect"])
-                return seed, model_id, para, {"probe": para, "answer": answer, "rouge": rd}
+                ed = emb_diff(client, answer, seed["correct"], seed["incorrect"], _emb_errors)
+                jd = llm_judge(client, seed["q"], answer, seed["correct"], seed["incorrect"]) if (enable_judge and model_id == ENDPOINT_AUDITED) else None
+                return seed, model_id, para, {"answer": answer, "rouge": rd, "emb": ed, "judge": jd}
 
             raw_results = {}
-            total_tasks = len(tasks)
-            show_header("Answering paraphrases (parallel)")
+            show_header("Phase 2/2 · Answering probes")
+            with ThreadPoolExecutor(max_workers=min(len(tasks), MAX_CONCURRENCY)) as ex:
+                futures = [ex.submit(run_task, s, m, p) for (s, m, p) in tasks]
+                for future in as_completed(futures):
+                    seed, model_id, para, r = future.result()
+                    raw_results.setdefault((seed["id"], model_id), []).append(r)
+                    done_overall += 1
+                    show_header("Phase 2/2 · Answering probes")
+                    show_ghost(f"Answered: ({seed['cat'].upper()}) probe via {_short(model_id)}")
 
-            if total_tasks:
-                p2_workers = min(total_tasks, MAX_CONCURRENCY)
-                with ThreadPoolExecutor(max_workers=p2_workers) as ex:
-                    futures = [ex.submit(run_task, s, m, p) for (s, m, p) in tasks]
-                    for future in as_completed(futures):
-                        seed, model_id, para, r = future.result()
-                        raw_results.setdefault((seed["id"], model_id), []).append(r)
-                        done_overall += 1
-                        show_header("Answering paraphrases (parallel)")
-                        show_ghost(f"Answered: ({seed['cat'].upper()}) paraphrase via {_short(model_id)}")
-
-            consistency_results = {mid: {} for mid in audited_models}
-            for seed in subset_questions:
-                for model_id in audited_models:
-                    consistency_results[model_id][seed["id"]] = raw_results.get((seed["id"], model_id), [])
+            # ── Aggregate probe results per (question, model) ────────────
+            # rouge/emb = mean across probes; judge_verdicts = flat list for
+            # topic-level hallucination rate (GPT-judge: #halluc / total probes)
+            all_results = {mid: {} for mid in audited_models}
+            for seed in questions_to_run:
+                for mid in audited_models:
+                    probe_rs = raw_results.get((seed["id"], mid), [])
+                    if not probe_rs:
+                        continue
+                    rouges  = [r["rouge"] for r in probe_rs]
+                    embs    = [r["emb"] for r in probe_rs if r.get("emb") is not None]
+                    verdicts = [r["judge"] for r in probe_rs]
+                    parsed   = [v for v in verdicts if v is not None]
+                    all_results[mid][seed["id"]] = {
+                        "answer":         probe_rs[0]["answer"],
+                        "rouge":          sum(rouges) / len(rouges),
+                        "emb":            sum(embs) / len(embs) if embs else None,
+                        "judge_verdicts": verdicts,
+                        "judge":          (1 if sum(parsed) >= len(parsed) / 2 else 0) if parsed else None,
+                        "probe_rouges":   rouges,
+                        "n_probes":       len(probe_rs),
+                    }
 
             done_overall = total_overall
-            header.markdown(
-                '<div style="font-size:11px;color:#21c354">'
-                '<b>Consistency check complete</b></div>',
-                unsafe_allow_html=True,
-            )
+            header.markdown('<div style="font-size:11px;color:#21c354"><b>Audit complete</b></div>',
+                            unsafe_allow_html=True)
             pb.progress(1.0)
-            show_ghost(f"{total_tasks} paraphrase calls in {_fmt_eta(_time.time() - start_time)}.")
+            show_ghost(f"{len(tasks)} probe calls across {len(questions_to_run)} questions in {_fmt_eta(_time.time() - start_time)}.")
+            if _emb_errors:
+                st.warning(f"Embedding API failed on {len(_emb_errors)} probe(s).")
+            st.session_state.s1_results   = all_results
+            st.session_state.s1_seed_id   = "full"
+            st.session_state.s1_cats      = cats_sel
+            st.session_state.s1_questions = questions_to_run
+            _save_s1_results(all_results, questions_to_run, cats_sel)
 
-            st.session_state.s1_consistency        = consistency_results
-            st.session_state.s1_consistency_qs      = subset_questions
-            st.session_state.s1_consistency_models  = audited_models
-            st.session_state.s1_consistency_n_para  = N_PARA
-
+        except RuntimeError as e:
+            _s1_error = e
+            header.empty(); ghost.empty(); pb.empty()
         except Exception as e:
-            _s1c_error = e
-            header.empty()
-            ghost.empty()
-            pb.empty()
+            _s1_error = e
+            header.empty(); ghost.empty(); pb.empty()
         finally:
             st.session_state.s1_running = False
             _set_audit_running(False)
-        if _s1c_error:
-            st.error(f"Consistency check failed ({type(_s1c_error).__name__}). Check server logs for details.")
+        if _s1_error:
+            if isinstance(_s1_error, RuntimeError):
+                st.error(str(_s1_error))
+            else:
+                st.error(f"Audit failed ({type(_s1_error).__name__}). Check server logs for details.")
             st.stop()
         st.rerun()
 
@@ -1856,40 +1707,35 @@ with tab_audit:
     questions_run = st.session_state.get("s1_questions", [])
     cats_run      = st.session_state.get("s1_cats", [])
 
-    # Defensive: discard stale results cached under the old schema, where
-    # results[mid][qid] was a list of probe-answer dicts (pre-refactor).
-    # The current schema stores a single {answer, rouge, emb} dict per
-    # question. Browser session_state can outlive a file update, so this
-    # self-heals instead of crashing on a stale cache.
+    # Discard results from the pre-ProbeGen schema (no n_probes key).
     if results and any(
-        isinstance(v, list) for q_dict in results.values() for v in q_dict.values()
+        "n_probes" not in v
+        for q_dict in results.values() for v in q_dict.values()
     ):
         results, questions_run, cats_run = {}, [], []
         st.session_state.s1_results = {}
-        st.warning(
-            "Cleared cached results from a previous app version — "
-            "click **Run full audit** to generate fresh results."
-        )
+        st.warning("Cleared cached results from a previous run — click **Run full audit** to generate fresh results.")
 
     if results and questions_run:
 
         # ── Compute per-question, per-topic stats ──────────────────────
-        # results[mid][qid] is a single {answer, rouge, emb, judge} dict -
-        # one direct answer per question, no probe paraphrasing. "judge"
-        # "judge" is None if enable_judge was False for this run, or if the
-        # judge model's response couldn't be parsed as TRUTHFUL/HALLUCINATED -
-        # enabled by default, so the latter is now the more likely cause.
-        # q_data[mid][qid] = {rouge_mean, emb_mean, hall_rate, answer, judge}
+        # results[mid][qid] = {answer, rouge, emb, judge, judge_verdicts, n_probes}
+        # rouge/emb are already probe-means. judge_verdicts is the flat list
+        # of per-probe verdicts used for topic-level hall_judge aggregation.
+        # judge is the majority-vote single verdict used for per-question display.
+        # q_data[mid][qid] = {rouge_mean, emb_mean, hall_rate, answer, judge, judge_verdicts}
         q_data = {}
         for mid, q_dict in results.items():
             q_data[mid] = {}
             for qid, r in q_dict.items():
                 q_data[mid][qid] = {
-                    "rouge_mean": r["rouge"],
-                    "emb_mean":   r.get("emb"),
-                    "hall_rate":  100.0 if r["rouge"] < 0 else 0.0,
-                    "answer":     r["answer"],
-                    "judge":      r.get("judge"),  # .get(): stale pre-judge results lack this key
+                    "rouge_mean":     r["rouge"],
+                    "emb_mean":       r.get("emb"),
+                    "hall_rate":      100.0 if r["rouge"] < 0 else 0.0,
+                    "answer":         r["answer"],
+                    "judge":          r.get("judge"),
+                    "judge_verdicts": r.get("judge_verdicts", [r.get("judge")]),
+                    "probe_rouges":   r.get("probe_rouges", [r.get("rouge")]),
                 }
 
         # topic_data[mid][cat] = {rouge_mean, emb_mean, hall_rate, n_q, hall_judge}
@@ -1903,8 +1749,17 @@ with tab_audit:
                 q_means = [q_data[mid][p["id"]]["rouge_mean"] for p in cat_qs if p["id"] in q_data[mid]]
                 halls   = [q_data[mid][p["id"]]["hall_rate"]  for p in cat_qs if p["id"] in q_data[mid]]
                 e_means = [q_data[mid][p["id"]]["emb_mean"]   for p in cat_qs if p["id"] in q_data[mid] and q_data[mid][p["id"]]["emb_mean"] is not None]
-                all_verdicts = [q_data[mid][p["id"]]["judge"] for p in cat_qs if p["id"] in q_data[mid]]
-                judges       = [v for v in all_verdicts if v is not None]
+                # Flatten probe-level verdicts across all questions in topic
+                all_verdicts = [
+                    v
+                    for p in cat_qs if p["id"] in q_data[mid]
+                    for v in q_data[mid][p["id"]]["judge_verdicts"]
+                ]
+                judges = [v for v in all_verdicts if v is not None]
+                n_probes_topic = sum(
+                    results[mid][p["id"]].get("n_probes", 1)
+                    for p in cat_qs if p["id"] in results.get(mid, {})
+                )
                 if not q_means:
                     continue
                 topic_data[mid][cat] = {
@@ -1912,6 +1767,7 @@ with tab_audit:
                     "emb_mean":   sum(e_means) / len(e_means) if e_means else None,
                     "hall_rate":  sum(halls)   / len(halls),
                     "n_q":        len(cat_qs),
+                    "n_probes":   n_probes_topic,
                     "hall_judge": ((len(judges) - sum(judges)) / len(all_verdicts) * 100) if judges else None,
                 }
 
@@ -2270,13 +2126,14 @@ with tab_audit:
         </style>
         """
 
-        def n_q(cat):
-            return len([p for p in questions_run if p["cat"] == cat])
+        def n_probes(cat):
+            return topic_data.get(candidate_mid, {}).get(cat, {}).get("n_probes") or \
+                   len([p for p in questions_run if p["cat"] == cat])
 
         topic_ths = "".join(
-            '<th title="{cap} - {n} questions">{cap}<br>'
-            '<span style="font-size:9px;color:#667788;font-weight:400;text-transform:none">n={n}</span></th>'.format(
-                cap=c.upper(), n=n_q(c)
+            '<th title="{cap} - {n} probe answers">{cap}<br>'
+            '<span style="font-size:9px;color:#667788;font-weight:400;text-transform:none">n={n} probes</span></th>'.format(
+                cap=c.upper(), n=n_probes(c)
             )
             for c in cats_run
         )
@@ -2375,7 +2232,6 @@ with tab_audit:
         st.html(cards_html)
 
         # ── Decision Review Dashboard ────────────────────────────────────
-        _cons_candidate = st.session_state.get("s1_consistency", {}).get(candidate_mid, {})
 
         def _build_verdict(seed):
             """Returns (reasons, notes). reasons drive PASS/FAIL; notes are
@@ -2405,11 +2261,9 @@ with tab_audit:
                     if ref_rouge is not None and rouge < ref_rouge - 0.05:
                         reasons.append(("Worse than reference", f"Candidate ROUGE-L ({rouge:+.3f}) is meaningfully below the reference model's ({ref_rouge:+.3f}) on this exact question."))
 
-            cons_rows = _cons_candidate.get(qid)
-            if cons_rows:
-                c_scores = [r["rouge"] for r in cons_rows]
-                if len({s >= 0 for s in c_scores}) > 1:
-                    reasons.append(("Low Probe Alignment", f"Answer direction varied across {len(c_scores)} paraphrased variants of this question \u2014 the variants did not align with each other."))
+            probe_rouges = q_data[candidate_mid].get(qid, {}).get("probe_rouges", [])
+            if len(probe_rouges) > 1 and len({s >= 0 for s in probe_rouges}) > 1:
+                reasons.append(("Low Probe Alignment", f"Answer direction varied across {len(probe_rouges)} probes of this question \u2014 the model's correctness depends on how the question is worded."))
             return reasons, notes
 
         qid_to_seed = {p["id"]: p for p in questions_run if p["id"] in q_data.get(candidate_mid, {})}
@@ -2660,89 +2514,6 @@ with tab_audit:
         topic_info = " | ".join(f"{cat.upper()} ({n} Qs)" for cat, n in sorted(topic_counts.items()))
         st.caption(f"Question bank: {len(PROBES)} questions — {topic_info}")
 
-    # ── Consistency Check display (ProbeGen) ────────────────────────
-    # Independent of the main audit - shows whenever a consistency run
-    # has completed, regardless of whether the full audit has been run.
-    cons_results = st.session_state.get("s1_consistency")
-    cons_qs      = st.session_state.get("s1_consistency_qs", [])
-    cons_models  = st.session_state.get("s1_consistency_models", [])
-    cons_n_para  = st.session_state.get("s1_consistency_n_para", 3)
-
-    if cons_results and cons_qs:
-        st.markdown("---")
-        cons_candidate = cons_models[0]
-        cons_reference = cons_models[1] if len(cons_models) > 1 else None
-
-        def _cshort(mid):
-            return MODEL_LABELS.get(mid, mid)
-
-        _n_para_note = (
-            "With only 1 paraphrase, every question is trivially \"Consistent\" by "
-            "definition - there's nothing to disagree with. Re-run with 2-3 for the "
-            "consistency check to mean anything."
-            if cons_n_para == 1 else
-            "Tests whether the answer direction (correct vs. incorrect) holds up across "
-            "phrasings, not just on the one canonical wording - a signal pure "
-            "accuracy-on-one-wording can't catch."
-        )
-        st.html(f"""
-        <div style="font-size:12px;font-weight:700;color:#eef2f7;margin-bottom:2px">
-          Consistency Check &mdash; ProbeGen (Amirizaniani et al., 2024)
-        </div>
-        <div style="font-size:10px;color:#8899aa;margin-bottom:10px">
-          {len(cons_qs)} seed questions, each paraphrased into {cons_n_para} differently-worded
-          version{'s' if cons_n_para != 1 else ''} (LLM1: {_cshort(ENDPOINT_PROBE_GEN)}) with the
-          same intent. {_n_para_note} Independent of the main audit above.
-        </div>
-        """)
-
-        rows_html = ""
-        for seed in cons_qs:
-            for mid in cons_models:
-                rows = cons_results.get(mid, {}).get(seed["id"], [])
-                if not rows:
-                    continue
-                scores = [r["rouge"] for r in rows]
-                mean_s = sum(scores) / len(scores)
-                std_s  = (sum((s - mean_s) ** 2 for s in scores) / len(scores)) ** 0.5 if len(scores) > 1 else 0.0
-                signs  = {s >= 0 for s in scores}
-                consistent = len(signs) == 1
-                verdict_col = "#21c354" if consistent else "#ff4b4b"
-                verdict_txt = "Consistent" if consistent else "Inconsistent"
-                role = "Candidate" if mid == cons_candidate else "Reference" if mid == cons_reference else ""
-                role_tag = f' <span style="color:#667788;font-size:9px">({role})</span>' if role else ""
-                scores_str = ", ".join(f"{s:+.3f}" for s in scores)
-
-                rows_html += f"""<tr>
-                  <td style="text-align:left;padding:5px 12px;border:1px solid #1e2a3a;color:#8899aa;font-size:10px;text-transform:uppercase">{seed['cat']}</td>
-                  <td style="text-align:left;padding:5px 12px;border:1px solid #1e2a3a;color:#ccd6e0;font-size:11px">{seed['q']}</td>
-                  <td style="text-align:left;padding:5px 12px;border:1px solid #1e2a3a;color:#ccd6e0;font-size:11px">{_cshort(mid)}{role_tag}</td>
-                  <td style="text-align:right;padding:5px 12px;border:1px solid #1e2a3a;color:#ccd6e0;font-size:10px">{scores_str}</td>
-                  <td style="text-align:right;padding:5px 12px;border:1px solid #1e2a3a;color:#ccd6e0;font-size:11px">{mean_s:+.3f}</td>
-                  <td style="text-align:right;padding:5px 12px;border:1px solid #1e2a3a;color:#ccd6e0;font-size:11px">{std_s:.3f}</td>
-                  <td style="text-align:left;padding:5px 12px;border:1px solid #1e2a3a;color:{verdict_col};font-size:11px;font-weight:600">{verdict_txt}</td>
-                </tr>"""
-
-        st.html(f"""
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
-          <thead><tr>
-            <th style="text-align:left;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Topic</th>
-            <th style="text-align:left;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Seed question</th>
-            <th style="text-align:left;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Model</th>
-            <th style="text-align:right;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Paraphrase ROUGE-L scores</th>
-            <th style="text-align:right;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Mean</th>
-            <th style="text-align:right;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Std</th>
-            <th style="text-align:left;padding:7px 12px;background:#1a2535;color:#8899aa;font-size:10px;text-transform:uppercase;border:1px solid #2a3848">Verdict</th>
-          </tr></thead>
-          <tbody>{rows_html}</tbody>
-        </table>
-        <div style="font-size:10px;color:#667788;margin-top:6px">
-          Consistent = all 3 paraphrase scores agree in sign (all correct-direction or all
-          incorrect-direction). Inconsistent = at least one paraphrase flipped direction relative
-          to the others - the candidate's correctness on this topic depends on how the question
-          is worded, not just what's being asked.
-        </div>
-        """)
 
 # ══════════════════════════════════════════════════════════════════
 # FLASK  (Ye et al., ICLR 2024)

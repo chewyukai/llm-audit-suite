@@ -1114,11 +1114,14 @@ def flask_judge_question(client: Ark, question: str, correct: str = "", incorrec
         )
         record_usage(judge_resp, ENDPOINT_FLASK_JUDGE)
         raw_judge = (judge_resp.choices[0].message.content or "{}").strip()
-        _raw_json = raw_judge
-        _s, _e = _raw_json.find("{"), _raw_json.rfind("}")
-        if _s != -1 and _e != -1:
-            _raw_json = _raw_json[_s:_e + 1]
-        scores = json.loads(_raw_json)
+        try:
+            scores = json.loads(raw_judge)
+        except Exception:
+            _s, _e = raw_judge.find("{"), raw_judge.rfind("}")
+            if _s != -1 and _e != -1:
+                scores = json.loads(raw_judge[_s:_e + 1])
+            else:
+                scores = {}
     except Exception:
         scores = {}
     for d in FLASK_DIMENSIONS:
@@ -2664,10 +2667,10 @@ with tab_flask:
             with _f_lock:
                 _f_live.append(result)
                 _f_done[0] += 1
-                _f_show_header()
-                _f_show_ghost(
-                    f"Scored: ({fq['cat'].upper()}) {fq['q'][:65]}{'...' if len(fq['q']) > 65 else ''}"
-                )
+            _f_show_header()
+            _f_show_ghost(
+                f"Scored: ({fq['cat'].upper()}) {fq['q'][:65]}{'...' if len(fq['q']) > 65 else ''}"
+            )
             return result
 
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -3063,7 +3066,7 @@ with tab_flask:
           details > summary::marker { display: none; }
         </style>
         <script>
-        var _fs = new Set();
+        var _fs = new Set(JSON.parse(sessionStorage.getItem('flask_sel') || '[]'));
         function _sync() {
           var crds = document.querySelectorAll('#flask-raw .raw-card');
           var bdg  = document.getElementById('flask-badge');
@@ -3075,9 +3078,14 @@ with tab_flask:
         function _fc(tr) {
           var id = tr.getAttribute('data-qid');
           _fs.has(id) ? _fs.delete(id) : _fs.add(id);
+          sessionStorage.setItem('flask_sel', JSON.stringify([..._fs]));
           tr.classList.toggle('sel', _fs.has(id));
           _sync();
         }
+        document.querySelectorAll('tr[data-qid]').forEach(function(tr) {
+          if (_fs.has(tr.getAttribute('data-qid'))) tr.classList.add('sel');
+        });
+        _sync();
         </script>
         """
     )

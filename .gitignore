@@ -1,4 +1,9 @@
 .env
+.streamlit/secrets.toml
 __pycache__/
 *.pyc
 .DS_Store
+.s1_results.json
+.audit_state.json
+.flask_debug.txt
+.usage_budget.json

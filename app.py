@@ -625,13 +625,14 @@ ENDPOINT_PROBE_GEN   = _secret("ENDPOINT_PROBE_GEN")
 ENDPOINT_FLASK_JUDGE = _secret("ENDPOINT_FLASK_JUDGE")
 
 MODEL_LABELS = {k: v for k, v in [
-    (ENDPOINT_AUDITED,   "Dola Seed 2.0 Mini"),
-    (ENDPOINT_REFERENCE, "Dola Seed 2.0 Pro"),
-    (ENDPOINT_PROBE_GEN, "Dola Seed 2.0 Lite"),
-    (ENDPOINT_EMBED,     "Skylark Embedding Vision"),
+    (ENDPOINT_AUDITED,     "Dola Seed 2.0 Mini"),
+    (ENDPOINT_REFERENCE,   "Dola Seed 2.0 Pro"),
+    (ENDPOINT_PROBE_GEN,   "Dola Seed 2.0 Lite"),
+    (ENDPOINT_EMBED,       "Skylark Embedding Vision"),
+    (ENDPOINT_FLASK_JUDGE, "Dola Seed 2.0 Pro"),
 ] if k is not None}
-_LABEL_AUDITED     = MODEL_LABELS.get(ENDPOINT_AUDITED)   or "Dola Seed 2.0 Mini"
-_LABEL_FLASK_JUDGE = MODEL_LABELS.get(ENDPOINT_REFERENCE) or "Dola Seed 2.0 Pro"
+_LABEL_AUDITED     = MODEL_LABELS.get(ENDPOINT_AUDITED)     or "Dola Seed 2.0 Mini"
+_LABEL_FLASK_JUDGE = MODEL_LABELS.get(ENDPOINT_FLASK_JUDGE) or "Dola Seed 2.0 Pro"
 
 def _extra_body(model_id: str) -> dict:
     return {}
@@ -752,7 +753,7 @@ def record_usage(resp, model_id: str) -> None:
         usage = _load_usage()
         usage["total_tokens"] += total
         usage["total_calls"]  += 1
-        m = usage["by_model"].setdefault(model_id, {"input": 0, "output": 0})
+        m = usage["by_model"].setdefault(MODEL_LABELS.get(model_id) or model_id, {"input": 0, "output": 0})
         m["input"]  += prompt
         m["output"] += completion
         _save_usage(usage)
@@ -815,8 +816,11 @@ _S1_RESULTS_FILE = os.path.join(os.path.dirname(__file__), ".s1_results.json")
 
 def _save_s1_results(all_results: dict, questions: list, cats: list) -> None:
     try:
+        # Translate endpoint ID keys → human-readable labels so the file
+        # never contains ep-xxx strings.
+        safe_results = {MODEL_LABELS.get(k) or k: v for k, v in all_results.items()}
         with open(_S1_RESULTS_FILE, "w") as f:
-            json.dump({"results": all_results, "questions": questions, "cats": cats}, f)
+            json.dump({"results": safe_results, "questions": questions, "cats": cats}, f)
     except Exception:
         pass
 
@@ -824,7 +828,10 @@ def _load_s1_results() -> tuple:
     try:
         with open(_S1_RESULTS_FILE) as f:
             d = json.load(f)
-            return d.get("results", {}), d.get("questions", []), d.get("cats", [])
+            raw = d.get("results", {})
+            # Translate any legacy endpoint ID keys (pre-fix files) to labels.
+            results = {MODEL_LABELS.get(k) or k: v for k, v in raw.items()}
+            return results, d.get("questions", []), d.get("cats", [])
     except (FileNotFoundError, json.JSONDecodeError):
         return {}, [], []
 

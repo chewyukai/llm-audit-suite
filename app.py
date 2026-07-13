@@ -176,10 +176,8 @@ button[data-testid="baseButton-header"] { display:none !important }
   margin:0 auto !important;
   padding-top:1.2rem !important;
 }
-@media (min-width: 769px) {
-  .main .block-container {
-    max-width:75vw !important;
-  }
+.st-emotion-cache-zy6yx3 {
+  max-width:75% !important;
 }
 
 /* ── Mobile / responsive ──────────────────────────────────────── */

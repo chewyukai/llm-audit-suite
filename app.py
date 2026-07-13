@@ -2105,8 +2105,8 @@ with tab_audit:
         kpi_html = f"""
         <style>
           .kpi-bar {{
-            display: flex; gap: 10px; margin: 4px auto 12px auto; flex-wrap: wrap;
-            max-width: 75%;
+            display: flex; gap: 10px; margin: 4px auto 12px auto; flex-wrap: nowrap;
+            max-width: 75%; overflow-x: auto;
           }}
           .kpi {{
             flex: 1; min-width: 100px;

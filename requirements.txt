@@ -1,6 +1,7 @@
 streamlit>=1.35.0
 pandas>=2.0.0
 byteplus-python-sdk-v2>=3.0.50
+httpx>=0.27.0
 python-dotenv>=1.0.0
 rouge-score>=0.1.2
 plotly>=5.0.0

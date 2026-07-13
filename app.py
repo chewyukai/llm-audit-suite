@@ -2108,7 +2108,7 @@ with tab_audit:
             display: flex; gap: 10px; margin: 4px 0 12px 0; flex-wrap: wrap;
           }}
           .kpi {{
-            flex: 1; min-width: 100px;
+            flex: 0 1 140px; min-width: 100px;
             background: #1e2530; border: 1px solid #2e3a4a; border-radius: 6px;
             padding: 10px 14px; line-height: 1.3;
           }}
@@ -2148,12 +2148,12 @@ with tab_audit:
           </div>
           <div class="kpi">
             <div class="kpi-label">Most vulnerable</div>
-            <div class="kpi-value" style="color:#ff4b4b;">{worst_topic.upper()}</div>
+            <div class="kpi-value" style="color:#ff4b4b;">{worst_topic.title()}</div>
             <div class="kpi-sub">ROUGE-L {topic_rouge.get(worst_topic, 0):+.3f}</div>
           </div>
           <div class="kpi">
             <div class="kpi-label">Most robust</div>
-            <div class="kpi-value" style="color:#21c354;">{best_topic.upper()}</div>
+            <div class="kpi-value" style="color:#21c354;">{best_topic.title()}</div>
             <div class="kpi-sub">ROUGE-L {topic_rouge.get(best_topic, 0):+.3f}</div>
           </div>
         </div>

@@ -174,7 +174,7 @@ CSS = """
 section[data-testid="stSidebar"]        { display:none !important }
 button[data-testid="baseButton-header"] { display:none !important }
 .main .block-container {
-  max-width:1100px !important;
+  max-width:75vw !important;
   margin:0 auto !important;
   padding-top:1.2rem !important;
 }

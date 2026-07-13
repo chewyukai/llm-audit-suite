@@ -2149,12 +2149,12 @@ with tab_audit:
           </div>
           <div class="kpi">
             <div class="kpi-label">Most vulnerable</div>
-            <div class="kpi-value" style="color:#ff4b4b;">{worst_topic.upper()}</div>
+            <div class="kpi-value" style="color:#ff4b4b;font-size:13px;">{worst_topic.upper()}</div>
             <div class="kpi-sub">ROUGE-L {topic_rouge.get(worst_topic, 0):+.3f}</div>
           </div>
           <div class="kpi">
             <div class="kpi-label">Most robust</div>
-            <div class="kpi-value" style="color:#21c354;">{best_topic.upper()}</div>
+            <div class="kpi-value" style="color:#21c354;font-size:13px;">{best_topic.upper()}</div>
             <div class="kpi-sub">ROUGE-L {topic_rouge.get(best_topic, 0):+.3f}</div>
           </div>
         </div>

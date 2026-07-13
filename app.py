@@ -627,8 +627,8 @@ MODEL_LABELS = {k: v for k, v in [
     (ENDPOINT_PROBE_GEN, "Dola Seed 2.0 Lite"),
     (ENDPOINT_EMBED,     "Skylark Embedding Vision"),
 ] if k is not None}
-_LABEL_AUDITED     = MODEL_LABELS.get(ENDPOINT_AUDITED, ENDPOINT_AUDITED)
-_LABEL_FLASK_JUDGE = MODEL_LABELS.get(ENDPOINT_REFERENCE, ENDPOINT_REFERENCE)
+_LABEL_AUDITED     = MODEL_LABELS.get(ENDPOINT_AUDITED)   or "Dola Seed 2.0 Mini"
+_LABEL_FLASK_JUDGE = MODEL_LABELS.get(ENDPOINT_REFERENCE) or "Dola Seed 2.0 Pro"
 
 def _extra_body(model_id: str) -> dict:
     return {}
@@ -1758,8 +1758,8 @@ with tab_audit:
             st.html('<div class="sb-label">Models Under Audit</div>')
             st.html(f"""
             <div style="font-size:12px;color:#ccd6e0;line-height:2">
-              <span style="color:#4C9BE8">&#9679;</span> <b>Candidate:</b> {MODEL_LABELS.get(candidate_model, candidate_model)}<br>
-              <span style="color:#F2A93B">&#9679;</span> <b>Reference:</b> {MODEL_LABELS.get(reference_model, reference_model)}
+              <span style="color:#4C9BE8">&#9679;</span> <b>Candidate:</b> {MODEL_LABELS.get(candidate_model) or "Dola Seed 2.0 Mini"}<br>
+              <span style="color:#F2A93B">&#9679;</span> <b>Reference:</b> {MODEL_LABELS.get(reference_model) or "Dola Seed 2.0 Pro"}
             </div>
             """)
         with _ac_scope:

@@ -9,6 +9,8 @@ import sys
 import json
 import threading
 import time
+import fcntl
+import contextlib
 import pandas as pd
 from datetime import datetime
 from typing import List
@@ -666,7 +668,21 @@ def make_client() -> Ark:
 # property of having shell access, not a gap in this implementation.
 MAX_TOTAL_TOKENS = 2_000_000  # hard ceiling - edit here only, no UI control raises this
 _USAGE_FILE = os.path.join(os.path.dirname(__file__), ".usage_budget.json")
-_usage_lock = threading.Lock()
+_LOCK_FILE   = os.path.join(os.path.dirname(__file__), ".budget.lock")
+_usage_lock  = threading.Lock()
+
+@contextlib.contextmanager
+def _budget_lock():
+    """Exclusive lock covering both in-process threads and concurrent Streamlit
+    worker processes. fcntl.flock gives cross-process exclusion on the same
+    filesystem; _usage_lock serialises threads within a single process."""
+    with _usage_lock:
+        with open(_LOCK_FILE, "a") as _lf:
+            fcntl.flock(_lf, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(_lf, fcntl.LOCK_UN)
 
 # Optional secondary cap in SGD, estimated from token usage. Disabled
 # (None) by default, because I have no verified pricing for the actual
@@ -715,7 +731,7 @@ def check_budget() -> None:
     """Call before every API call. Raises RuntimeError if either the
     token budget or (if enabled) the SGD estimate is already exhausted -
     never silently lets a call through."""
-    with _usage_lock:
+    with _budget_lock():
         usage = _load_usage()
         if usage["total_tokens"] >= MAX_TOTAL_TOKENS:
             raise RuntimeError(
@@ -749,7 +765,7 @@ def record_usage(resp, model_id: str) -> None:
         total      = getattr(usage_obj, "total_tokens", None) or 0
         prompt     = getattr(usage_obj, "prompt_tokens", None) or 0
         completion = getattr(usage_obj, "completion_tokens", None) or 0
-    with _usage_lock:
+    with _budget_lock():
         usage = _load_usage()
         usage["total_tokens"] += total
         usage["total_calls"]  += 1
@@ -775,15 +791,18 @@ def get_budget_status() -> dict:
 
 # ── Rate limiting ────────────────────────────────────────────────────
 # Prevents rapid-fire or sustained API abuse beyond the token ceiling.
-# Enforced in check_rate_limit() before each LLMAuditor run. FLASK and
+# Enforced in check_and_record_audit_start() before each LLMAuditor run. FLASK and
 # G-Eval are simulated so they have no backend API cost; no rate limit
 # is applied to them.
 _COOLDOWN_SECONDS = 30   # minimum gap between consecutive audit starts
 _MAX_RUNS_PER_HOUR = 50  # hard cap on LLMAuditor runs in any rolling 60-min window
 
-def check_rate_limit() -> None:
-    """Raises RuntimeError if cooldown or hourly cap is exceeded."""
-    with _usage_lock:
+def check_and_record_audit_start() -> None:
+    """Atomically check rate limits and record the audit start in one lock
+    acquisition. Splitting these into two calls created a TOCTOU window where
+    concurrent sessions could both pass the check before either recorded its
+    start, bypassing both the hourly cap and the cooldown."""
+    with _budget_lock():
         usage = _load_usage()
         now = time.time()
         starts = [t for t in usage.get("audit_starts", []) if now - t < 3600]
@@ -798,13 +817,6 @@ def check_rate_limit() -> None:
             raise RuntimeError(
                 f"Cooldown active: please wait {wait}s before starting another audit."
             )
-
-def record_audit_start() -> None:
-    """Call once per audit run, before any API calls."""
-    with _usage_lock:
-        usage = _load_usage()
-        now = time.time()
-        starts = [t for t in usage.get("audit_starts", []) if now - t < 3600]
         starts.append(now)
         usage["audit_starts"] = starts
         _save_usage(usage)
@@ -1819,7 +1831,7 @@ with tab_audit:
     if run1 and not _s1_busy:
         questions_to_run = [p for p in PROBES if p["cat"] in cats_sel]
         try:
-            check_rate_limit()
+            check_and_record_audit_start()
         except RuntimeError as _rl_err:
             st.error(str(_rl_err))
             st.stop()
@@ -1829,7 +1841,6 @@ with tab_audit:
         st.session_state.s1_running = True
         st.session_state.s1_pending_run = True
         st.session_state.s1_n_para = n_para_sel
-        record_audit_start()
         _set_audit_running(True)
         st.rerun()
 

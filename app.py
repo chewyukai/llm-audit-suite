@@ -621,12 +621,12 @@ ENDPOINT_EMBED       = _secret("ENDPOINT_EMBED")
 ENDPOINT_PROBE_GEN   = _secret("ENDPOINT_PROBE_GEN")
 ENDPOINT_FLASK_JUDGE = _secret("ENDPOINT_FLASK_JUDGE")
 
-MODEL_LABELS = {
-    ENDPOINT_AUDITED:   "Dola Seed 2.0 Mini",
-    ENDPOINT_REFERENCE: "Dola Seed 2.0 Pro",
-    ENDPOINT_PROBE_GEN: "Dola Seed 2.0 Lite",
-    ENDPOINT_EMBED:     "Skylark Embedding Vision",
-}
+MODEL_LABELS = {k: v for k, v in [
+    (ENDPOINT_AUDITED,   "Dola Seed 2.0 Mini"),
+    (ENDPOINT_REFERENCE, "Dola Seed 2.0 Pro"),
+    (ENDPOINT_PROBE_GEN, "Dola Seed 2.0 Lite"),
+    (ENDPOINT_EMBED,     "Skylark Embedding Vision"),
+] if k is not None}
 _LABEL_AUDITED     = MODEL_LABELS.get(ENDPOINT_AUDITED, ENDPOINT_AUDITED)
 _LABEL_FLASK_JUDGE = MODEL_LABELS.get(ENDPOINT_REFERENCE, ENDPOINT_REFERENCE)
 

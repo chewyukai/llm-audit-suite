@@ -1793,9 +1793,6 @@ with tab_audit:
         except RuntimeError as _rl_err:
             st.error(str(_rl_err))
             st.stop()
-        if not audited_models:
-            st.error("Add at least one model under audit in Audit Controls.")
-            st.stop()
         if not questions_to_run:
             st.error("Select at least one scope in Audit Controls.")
             st.stop()

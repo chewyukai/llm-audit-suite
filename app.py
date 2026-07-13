@@ -1751,6 +1751,26 @@ with tab_audit:
     candidate_model = ENDPOINT_AUDITED
     reference_model = ENDPOINT_REFERENCE
 
+    # ── Abstract ──────────────────────────────────────────────────
+    with st.expander("Abstract", expanded=True):
+        st.html(f"""
+        <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1e2a38">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#4488bb;font-weight:700;margin-bottom:4px">Abstract</div>
+          <div style="font-size:14px;font-weight:700;color:#eef2f7;line-height:1.35">Factual Accuracy Audit — {_LABEL_AUDITED} vs {_LABEL_FLASK_JUDGE}</div>
+        </div>
+        <div style="font-size:13px;color:#ccd6e0;line-height:1.8;padding:4px 2px 12px 2px;text-align:justify">
+          LLMAuditor<a href="https://arxiv.org/abs/2402.09346" target="_blank" style="color:#4488bb;font-size:10px;vertical-align:super;text-decoration:none;margin-left:1px">[1]</a>
+          evaluates <strong style="color:#4C9BE8">{_LABEL_AUDITED}</strong> against a
+          <strong style="color:#F2A93B">{_LABEL_FLASK_JUDGE}</strong> reference across five audit scopes —
+          General Knowledge, Fairness &amp; Bias, Misinformation, Health &amp; Science, and Adversarial —
+          using 30 TruthfulQA questions and 6 hardcoded attack probes.
+          Each response is scored on three signals: ROUGE-L lexical overlap differential (candidate vs.
+          correct and incorrect reference answers), embedding similarity differential, and an LLM-Judge
+          binary verdict. ProbeGen paraphrases each question to test answer consistency across phrasings.
+          Responses that fail on any signal are flagged for human review and escalated to the LLM Scorecard.
+        </div>
+        """)
+
     # ── Audit Controls (inline expander) ─────────────────────────────
     with st.expander("Audit Controls", expanded=False):
         _ac_models, _ac_scope, _ac_cons = st.columns(3)
@@ -3039,6 +3059,27 @@ with tab_flask:
         else _n_flagged_scope if _n_flagged_scope
         else len(FLASK_MOCK)
     )
+    # ── Abstract ──────────────────────────────────────────────────
+    with st.expander("Abstract", expanded=True):
+        st.html(f"""
+        <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #1e2a38">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#9B6BFF;font-weight:700;margin-bottom:4px">Abstract</div>
+          <div style="font-size:14px;font-weight:700;color:#eef2f7;line-height:1.35">Fine-Grained Skill Evaluation — FLASK</div>
+        </div>
+        <div style="font-size:13px;color:#ccd6e0;line-height:1.8;padding:4px 2px 12px 2px;text-align:justify">
+          Coarse pass/fail scoring is insufficient to guide model remediation. The LLM Scorecard applies
+          FLASK<a href="https://arxiv.org/abs/2307.10928" target="_blank" style="color:#4488bb;font-size:10px;vertical-align:super;text-decoration:none;margin-left:1px">[1]</a>
+          (Ye et al., ICLR 2024) to re-evaluate responses flagged by LLMAuditor across
+          <strong style="color:#9B6BFF">12 skill dimensions</strong> — Factuality, Logical Correctness,
+          Commonsense Understanding, Comprehension, Completeness, Readability, Conciseness, Harmlessness,
+          Logical Robustness, Logical Efficiency, Insightfulness, and Metacognition — each scored 1–5
+          by an independent judge model using the paper's verbatim rubric.
+          The resulting per-dimension profile reveals precisely where <strong style="color:#4C9BE8">{_LABEL_AUDITED}</strong>
+          falls short, providing an actionable signal for targeted fine-tuning, prompt engineering, or
+          escalation to the larger <strong style="color:#F2A93B">{_LABEL_FLASK_JUDGE}</strong> variant.
+        </div>
+        """)
+
     _fscope_col, _frun_col = st.columns([3, 1])
     with _fscope_col:
         st.html(f"""

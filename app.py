@@ -2105,7 +2105,8 @@ with tab_audit:
         kpi_html = f"""
         <style>
           .kpi-bar {{
-            display: flex; gap: 10px; margin: 4px 0 12px 0; flex-wrap: wrap;
+            display: flex; gap: 10px; margin: 4px auto 12px auto; flex-wrap: wrap;
+            max-width: 75%;
           }}
           .kpi {{
             flex: 1; min-width: 100px;
@@ -2116,7 +2117,7 @@ with tab_audit:
             font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
             color: #8899aa; margin-bottom: 2px;
           }}
-          .kpi-value {{ font-size: 20px; font-weight: 700; color: #eef2f7; }}
+          .kpi-value {{ font-size: clamp(13px, 2vw, 20px); font-weight: 700; color: #eef2f7; }}
           .kpi-sub   {{ font-size: 10px; color: #667788; margin-top: 1px; }}
         </style>
         <div style="font-size:11px;color:#667788;margin-bottom:6px;">

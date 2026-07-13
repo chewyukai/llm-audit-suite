@@ -49,7 +49,6 @@ CSS = """
 .main .block-container{
   padding-left:1rem !important;
   padding-right:1rem !important;
-  max-width:100% !important;
 }
 .compact-card{
   background:#1e2530;border:1px solid #2e3a4a;border-radius:6px;
@@ -174,9 +173,13 @@ CSS = """
 section[data-testid="stSidebar"]        { display:none !important }
 button[data-testid="baseButton-header"] { display:none !important }
 .main .block-container {
-  max-width:75vw !important;
   margin:0 auto !important;
   padding-top:1.2rem !important;
+}
+@media (min-width: 769px) {
+  .main .block-container {
+    max-width:75vw !important;
+  }
 }
 
 /* ── Mobile / responsive ──────────────────────────────────────── */
